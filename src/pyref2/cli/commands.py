@@ -5,7 +5,13 @@ from __future__ import annotations
 import argparse
 import sys
 
-from pyref2.service import analyze_files, analyze_trees, findings_to_json, write_findings
+from pyref2.service import (
+    analyze_files,
+    analyze_revision_range,
+    analyze_trees,
+    findings_to_json,
+    write_findings,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +50,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     analyze_tree_parser.add_argument("--output", required=False, help="Optional JSON output path")
 
+    analyze_revisions_parser = subparsers.add_parser(
+        "analyze-revisions",
+        help="Analyze refactorings between two Git revisions or a revision range",
+    )
+    analyze_revisions_parser.add_argument(
+        "--repo",
+        required=True,
+        help="Path to the Git repository to analyze",
+    )
+    analyze_revisions_parser.add_argument(
+        "revision_range",
+        help="Git revision range like origin/main..HEAD",
+    )
+    analyze_revisions_parser.add_argument(
+        "--output",
+        required=False,
+        help="Optional JSON output path",
+    )
+
     return parser
 
 
@@ -63,6 +88,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "analyze-tree":
         findings = analyze_trees(args.before_root, args.after_root)
+        if args.output:
+            write_findings(args.output, findings)
+            print(f"Wrote {len(findings)} findings to {args.output}")
+        else:
+            print(findings_to_json(findings))
+        return 0
+
+    if args.command == "analyze-revisions":
+        findings = analyze_revision_range(args.repo, args.revision_range)
+
         if args.output:
             write_findings(args.output, findings)
             print(f"Wrote {len(findings)} findings to {args.output}")

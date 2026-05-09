@@ -28,7 +28,15 @@ PyRef2 uses a small layered pipeline so each stage stays testable and replaceabl
 uv sync --extra dev
 uv run pyref2 analyze-files --before path/to/old.py --after path/to/new.py
 uv run pyref2 analyze-tree --before-root path/to/revision-A --after-root path/to/revision-B
+uv run pyref2 analyze-revisions --repo path/to/repo origin/main..HEAD
 ```
+
+## Git revision analysis
+
+Use `analyze-revisions` to compare repository states directly from Git without exporting trees by hand.
+
+- Pass a standard Git double-dot range: `uv run pyref2 analyze-revisions --repo path/to/repo origin/main..HEAD`
+- `main..feature` means: analyze the total effect between the tree at `main` and the tree at `feature`, which matches the common feature-branch review workflow.
 
 ## Tree test fixtures
 
@@ -38,3 +46,7 @@ Whole-tree regression tests live under `tests/source_trees/` and use this layout
 - `<test-name>/revision-B/`
 
 This keeps it easy to add a new before/after source tree pair whenever a bug needs a permanent fixture.
+
+## Documentation conventions
+
+- Use Google-style docstrings for public Python modules, classes, and functions.

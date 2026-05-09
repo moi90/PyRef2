@@ -11,3 +11,7 @@ class ParseError(PyRefError):
 
 class DetectionError(PyRefError):
     """Raised when refactoring detection fails."""
+
+
+class RepositoryError(PyRefError):
+    """Raised when repository-based analysis cannot load revisions."""
