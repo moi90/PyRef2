@@ -159,7 +159,7 @@ def _escape_markdown_cell(value: str) -> str:
 
 
 def _format_compact_change(original: str, updated: str) -> str:
-    """Render one finding as `<common-prefix>/{path-a:symbol -> path-b:symbol}`."""
+    """Render one finding as a compact, code-fenced markdown diff."""
     old_path, old_symbol = _split_reference(original)
     new_path, new_symbol = _split_reference(updated)
 
@@ -170,6 +170,15 @@ def _format_compact_change(original: str, updated: str) -> str:
 
     old_suffix = _path_suffix(old_path, common_prefix)
     new_suffix = _path_suffix(new_path, common_prefix)
+
+    if old_symbol == new_symbol:
+        return (
+            f"`{common_prefix}/`"
+            + "{"
+            + f"`{old_suffix}` → `{new_suffix}`"
+            + "}"
+            + f"`:{old_symbol}`"
+        )
 
     return (
         f"`{common_prefix}/`"

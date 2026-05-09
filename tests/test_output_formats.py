@@ -21,7 +21,7 @@ def test_markdown_output_contains_grouped_report() -> None:
     assert "# PyRef2 Refactoring Report" in output
     assert "## Move Method (1)" in output
     assert "| Change | Confidence |" in output
-    assert "`pkg/`{`alpha.py:moved_helper` → `beta.py:moved_helper`}" in output
+    assert "`pkg/`{`alpha.py` → `beta.py`}`:moved_helper`" in output
 
 
 def test_serialize_findings_switches_between_json_and_markdown() -> None:
@@ -57,8 +57,8 @@ def test_markdown_output_compacts_references_with_nested_common_prefix() -> None
 
     assert (
         "`foo/bar/pkg/`"
-        "{`alpha.py:transform_item` → "
-        "`beta.py:transform_item`}"
+        "{`alpha.py` → "
+        "`beta.py`}`:transform_item`"
     ) in output
 
 
