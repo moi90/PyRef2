@@ -21,7 +21,7 @@ def test_markdown_output_contains_grouped_report() -> None:
     assert "# PyRef2 Refactoring Report" in output
     assert "## Move Method (1)" in output
     assert "| Change | Confidence |" in output
-    assert "`pkg/{alpha.py:moved_helper -> beta.py:moved_helper}`" in output
+    assert "`pkg/`{`alpha.py:moved_helper` → `beta.py:moved_helper`}" in output
 
 
 def test_serialize_findings_switches_between_json_and_markdown() -> None:
@@ -56,9 +56,9 @@ def test_markdown_output_compacts_references_with_nested_common_prefix() -> None
     output = findings_to_markdown(findings)
 
     assert (
-        "`foo/bar/pkg/"
-        "{alpha.py:transform_item -> "
-        "beta.py:transform_item}`"
+        "`foo/bar/pkg/`"
+        "{`alpha.py:transform_item` → "
+        "`beta.py:transform_item`}"
     ) in output
 
 
@@ -82,10 +82,10 @@ def test_markdown_output_avoids_asymmetric_prefix_compaction() -> None:
     output = findings_to_markdown(findings)
 
     assert (
-        "`foo/bar/{alpha.py:"
-        "_legacy_helper -> "
-        "baz/beta.py:"
-        "helper}`"
+        "`foo/bar/`{`alpha.py:"
+        "_legacy_helper` → "
+        "`baz/beta.py:"
+        "helper`}"
     ) in output
 
 
@@ -102,4 +102,4 @@ def test_markdown_output_without_common_prefix_has_no_braces() -> None:
 
     output = findings_to_markdown(findings)
 
-    assert "`pkg/alpha.py:old_name -> core/beta.py:new_name`" in output
+    assert "`pkg/alpha.py:old_name` → `core/beta.py:new_name`" in output

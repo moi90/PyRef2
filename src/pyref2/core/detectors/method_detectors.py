@@ -73,6 +73,14 @@ class MoveMethodDetector(RefactoringDetector):
     name = "move-method"
 
     def detect(self, module_diff: ModuleDiff) -> list[RefactoringFinding]:
+        moved_class_transitions = {
+            (pair.before.module_name, pair.before.name, pair.after.module_name, pair.after.name)
+            for pair in module_diff.matched_classes
+            if pair.before.module_name != pair.after.module_name
+            and pair.before.name == pair.after.name
+            and pair.similarity >= 0.65
+        }
+
         findings: list[RefactoringFinding] = []
         for pair in module_diff.matched_methods:
             same_scope = (
@@ -85,6 +93,15 @@ class MoveMethodDetector(RefactoringDetector):
                 continue
             if pair.similarity < 0.8:
                 continue
+            if pair.before.class_name is not None and pair.after.class_name is not None:
+                owning_class_transition = (
+                    pair.before.module_name,
+                    pair.before.class_name,
+                    pair.after.module_name,
+                    pair.after.class_name,
+                )
+                if owning_class_transition in moved_class_transitions:
+                    continue
 
             findings.append(
                 RefactoringFinding(

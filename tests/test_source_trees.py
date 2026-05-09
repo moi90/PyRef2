@@ -39,3 +39,7 @@ def test_detect_move_class_across_modules() -> None:
         for f in findings
         if f.refactoring_type == "Move Class"
     )
+    assert not any(
+        f.refactoring_type == "Move Method" and f.original.endswith("Customer.label")
+        for f in findings
+    )
