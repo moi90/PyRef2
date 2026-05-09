@@ -12,9 +12,22 @@ It is designed for CI checks, release reviews, and repository archaeology.
 
 ## Install and run in 60 seconds
 
+Install from PyPI:
+
 ```bash
-uv sync --extra dev
-uv run pyref2 analyze-revisions --repo path/to/repo origin/main..HEAD --format markdown
+python -m pip install pyref2
+```
+
+Or with uv:
+
+```bash
+uv tool install pyref2
+```
+
+Then run:
+
+```bash
+pyref2 analyze-revisions --repo path/to/repo origin/main..HEAD --format markdown
 ```
 
 What you get:
