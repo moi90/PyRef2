@@ -11,13 +11,31 @@ from pathlib import Path
 from pyref2.core.ast_analysis import module_from_file
 from pyref2.core.detectors import default_detectors
 from pyref2.core.diff_engine import diff_modules
+from pyref2.models.code_elements import ModuleEntity
 from pyref2.models.refactorings import RefactoringFinding
 
 
 def analyze_files(before_path: str, after_path: str) -> list[RefactoringFinding]:
     """Run the full MVP pipeline on two Python files."""
-    before_module = module_from_file(before_path)
-    after_module = module_from_file(after_path)
+    before_module = module_from_file(before_path, module_name="<module>")
+    after_module = module_from_file(after_path, module_name="<module>")
+
+    return _run_detectors(before_module, after_module)
+
+
+def analyze_trees(before_root: str, after_root: str) -> list[RefactoringFinding]:
+    """Run the full MVP pipeline on two source tree revisions."""
+    before_module = _aggregate_tree(before_root, label="before-tree")
+    after_module = _aggregate_tree(after_root, label="after-tree")
+
+    return _run_detectors(before_module, after_module)
+
+
+def _run_detectors(
+    before_module: ModuleEntity,
+    after_module: ModuleEntity,
+) -> list[RefactoringFinding]:
+    """Apply the detector registry to two aggregated revisions."""
 
     # One structural diff is fanned out to multiple specialized detectors.
     module_diff = diff_modules(before_module, after_module)
@@ -28,6 +46,20 @@ def analyze_files(before_path: str, after_path: str) -> list[RefactoringFinding]
 
     findings.sort(key=lambda item: (item.refactoring_type, item.original, item.updated))
     return findings
+
+
+def _aggregate_tree(root: str, label: str) -> ModuleEntity:
+    """Parse all Python files below a source tree into one logical revision view."""
+    root_path = Path(root)
+    modules = [
+        module_from_file(str(path), module_name=path.relative_to(root_path).as_posix())
+        for path in sorted(root_path.rglob("*.py"))
+        if path.is_file()
+    ]
+
+    methods = tuple(method for module in modules for method in module.methods)
+    classes = tuple(class_entity for module in modules for class_entity in module.classes)
+    return ModuleEntity(name=label, methods=methods, classes=classes)
 
 
 def findings_to_json(findings: list[RefactoringFinding]) -> str:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from pyref2.service import analyze_files, findings_to_json, write_findings
+from pyref2.service import analyze_files, analyze_trees, findings_to_json, write_findings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,6 +28,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     analyze_files_parser.add_argument("--output", required=False, help="Optional JSON output path")
 
+    analyze_tree_parser = subparsers.add_parser(
+        "analyze-tree",
+        help="Analyze refactorings between two source tree revisions",
+    )
+    analyze_tree_parser.add_argument(
+        "--before-root",
+        required=True,
+        help="Path to the older source tree revision",
+    )
+    analyze_tree_parser.add_argument(
+        "--after-root",
+        required=True,
+        help="Path to the newer source tree revision",
+    )
+    analyze_tree_parser.add_argument("--output", required=False, help="Optional JSON output path")
+
     return parser
 
 
@@ -38,6 +54,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "analyze-files":
         findings = analyze_files(args.before, args.after)
+        if args.output:
+            write_findings(args.output, findings)
+            print(f"Wrote {len(findings)} findings to {args.output}")
+        else:
+            print(findings_to_json(findings))
+        return 0
+
+    if args.command == "analyze-tree":
+        findings = analyze_trees(args.before_root, args.after_root)
         if args.output:
             write_findings(args.output, findings)
             print(f"Wrote {len(findings)} findings to {args.output}")

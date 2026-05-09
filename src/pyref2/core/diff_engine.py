@@ -59,12 +59,14 @@ def _match_methods(
     used_before: set[int] = set()
     used_after: set[int] = set()
 
-    # First pass: preserve stable identities by method name and scope.
+    # First pass: preserve stable identities by full method location.
     for before_index, old_method in enumerate(before_methods):
         for after_index, new_method in enumerate(after_methods):
             if after_index in used_after:
                 continue
             if old_method.name != new_method.name:
+                continue
+            if old_method.module_name != new_method.module_name:
                 continue
             if old_method.class_name != new_method.class_name:
                 continue
@@ -126,9 +128,38 @@ def _match_classes(
     after_classes: tuple[ClassEntity, ...],
 ) -> tuple[tuple[MatchedClass, ...], tuple[ClassEntity, ...], tuple[ClassEntity, ...]]:
     matched: list[MatchedClass] = []
+    used_before: set[int] = set()
     used_after: set[int] = set()
 
-    for old_class in before_classes:
+    # First pass: preserve exact class identities within the same module.
+    for before_index, old_class in enumerate(before_classes):
+        for after_index, new_class in enumerate(after_classes):
+            if after_index in used_after:
+                continue
+            if old_class.name != new_class.name:
+                continue
+            if old_class.module_name != new_class.module_name:
+                continue
+
+            score = class_similarity(old_class, new_class)
+            if score < 0.3:
+                continue
+
+            used_before.add(before_index)
+            used_after.add(after_index)
+            matched.append(
+                MatchedClass(
+                    before=old_class,
+                    after=new_class,
+                    similarity=score,
+                )
+            )
+            break
+
+    for before_index, old_class in enumerate(before_classes):
+        if before_index in used_before:
+            continue
+
         best_index = -1
         best_score = 0.0
 
@@ -141,6 +172,7 @@ def _match_classes(
                 best_index = idx
 
         if best_index >= 0 and best_score >= 0.5:
+            used_before.add(before_index)
             used_after.add(best_index)
             matched.append(
                 MatchedClass(
@@ -151,9 +183,7 @@ def _match_classes(
             )
 
     removed = tuple(
-        class_entity
-        for class_entity in before_classes
-        if all(pair.before != class_entity for pair in matched)
+        class_entity for idx, class_entity in enumerate(before_classes) if idx not in used_before
     )
     added = tuple(
         class_entity

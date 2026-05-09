@@ -27,4 +27,14 @@ PyRef2 uses a small layered pipeline so each stage stays testable and replaceabl
 ```bash
 uv sync --extra dev
 uv run pyref2 analyze-files --before path/to/old.py --after path/to/new.py
+uv run pyref2 analyze-tree --before-root path/to/revision-A --after-root path/to/revision-B
 ```
+
+## Tree test fixtures
+
+Whole-tree regression tests live under `tests/source_trees/` and use this layout:
+
+- `<test-name>/revision-A/`
+- `<test-name>/revision-B/`
+
+This keeps it easy to add a new before/after source tree pair whenever a bug needs a permanent fixture.

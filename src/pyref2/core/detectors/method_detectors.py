@@ -75,7 +75,10 @@ class MoveMethodDetector(RefactoringDetector):
     def detect(self, module_diff: ModuleDiff) -> list[RefactoringFinding]:
         findings: list[RefactoringFinding] = []
         for pair in module_diff.matched_methods:
-            same_scope = pair.before.class_name == pair.after.class_name
+            same_scope = (
+                pair.before.class_name == pair.after.class_name
+                and pair.before.module_name == pair.after.module_name
+            )
             if same_scope:
                 continue
             if pair.before.name != pair.after.name:
@@ -91,6 +94,8 @@ class MoveMethodDetector(RefactoringDetector):
                     location=pair.after.module_name,
                     confidence=pair.similarity,
                     details={
+                        "Old Module": pair.before.module_name,
+                        "New Module": pair.after.module_name,
                         "Old Scope": pair.before.class_name,
                         "New Scope": pair.after.class_name,
                     },
@@ -166,9 +171,35 @@ class ChangeClassSignatureDetector(RefactoringDetector):
     def detect(self, module_diff: ModuleDiff) -> list[RefactoringFinding]:
         findings: list[RefactoringFinding] = []
         for pair in module_diff.matched_classes:
+            findings.extend(_class_move_findings(pair))
             findings.extend(_class_rename_findings(pair))
             findings.extend(_class_base_change_findings(pair))
         return findings
+
+
+def _class_move_findings(pair: MatchedClass) -> list[RefactoringFinding]:
+    if pair.before.module_name == pair.after.module_name:
+        return []
+    if pair.before.name != pair.after.name:
+        return []
+    if pair.similarity < 0.65:
+        return []
+
+    return [
+        RefactoringFinding(
+            refactoring_type="Move Class",
+            original=pair.before.qualified_name,
+            updated=pair.after.qualified_name,
+            location=pair.after.module_name,
+            confidence=pair.similarity,
+            details={
+                "Old Module": pair.before.module_name,
+                "New Module": pair.after.module_name,
+                "Original Line": pair.before.lineno,
+                "Updated Line": pair.after.lineno,
+            },
+        )
+    ]
 
 
 def _class_rename_findings(pair: MatchedClass) -> list[RefactoringFinding]:

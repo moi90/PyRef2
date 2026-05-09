@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from pyref2.core.ast_analysis import parse_module
 from pyref2.service import analyze_files
 
 
-def _write_module(tmp_path, filename: str, source: str) -> str:
+def _write_module(tmp_path: Path, filename: str, source: str) -> str:
     path = tmp_path / filename
     path.write_text(source, encoding="utf-8")
     return str(path)
@@ -27,7 +29,7 @@ def helper(x):
     assert len(module.methods) == 2
 
 
-def test_detect_rename_method(tmp_path) -> None:
+def test_detect_rename_method(tmp_path: Path) -> None:
     before = _write_module(
         tmp_path,
         "before.py",
@@ -49,7 +51,7 @@ def new_name(v):
     assert any(f.refactoring_type == "Rename Method" for f in findings)
 
 
-def test_detect_add_parameter(tmp_path) -> None:
+def test_detect_add_parameter(tmp_path: Path) -> None:
     before = _write_module(
         tmp_path,
         "before.py",
@@ -71,7 +73,7 @@ def compute(a, b):
     assert any(f.refactoring_type == "Add Parameter" for f in findings)
 
 
-def test_detect_extract_method(tmp_path) -> None:
+def test_detect_extract_method(tmp_path: Path) -> None:
     before = _write_module(
         tmp_path,
         "before.py",

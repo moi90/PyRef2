@@ -112,8 +112,8 @@ def _call_name(node: ast.AST) -> str | None:
     return None
 
 
-def module_from_file(path: str) -> ModuleEntity:
+def module_from_file(path: str, module_name: str | None = None) -> ModuleEntity:
     """Load a Python file and parse it into a module entity."""
     with open(path, encoding="utf-8") as handle:
         source = handle.read()
-    return parse_module(source, module_name=path)
+    return parse_module(source, module_name=module_name or path)
