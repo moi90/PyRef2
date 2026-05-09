@@ -1,7 +1,7 @@
 [project]
 name = "pyref2"
 version = "0.1.0"
-description = "Python refactoring detection toolkit for modern repositories"
+description = "Detect Python refactorings across Git revisions with functional-change reporting"
 readme = "README.md"
 authors = [
     { name = "Martin Schroeder", email = "mschroeder@geomar.de" }

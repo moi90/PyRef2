@@ -1,16 +1,34 @@
 # PyRef2
 
-PyRef2 is the Python 3.13 successor to PyRef.
+PyRef2 is based on the core idea behind PyRef: automatically detecting refactorings in Python code. It extends that idea with a typed Python 3.13 codebase, direct Git revision analysis, structured JSON and Markdown reporting, hierarchical change summaries, and explicit functional-change detection for both refactoring-related and standalone behavior changes.
 
-The project detects source-code refactorings across revisions with a typed, testable architecture inspired by modern refactoring research patterns.
+Use it when you need a fast, review-friendly report for questions like:
 
-## Current status
+- What was renamed, moved, extracted, inlined, or signature-changed between two revisions?
+- Did any of those findings also change method/class behavior?
+- Were there behavior changes that are not simple rename/move operations?
 
-- Python 3.13-ready package scaffold
-- Typed core models for modules, classes, methods, and findings
-- AST extraction and revision differencing
-- MVP detector set for method and class signature changes
-- CLI commands for local file comparisons
+It is designed for CI checks, release reviews, and repository archaeology.
+
+## Install and run in 60 seconds
+
+```bash
+uv sync --extra dev
+uv run pyref2 analyze-revisions --repo path/to/repo origin/main..HEAD --format markdown
+```
+
+What you get:
+
+- machine-readable JSON findings (default)
+- optional Markdown report grouped by change type and scope
+- per-finding functional-change status
+- condensed method-level code diffs when a functional change is detected
+
+## How to read the output
+
+- `No Functional Change` means PyRef2 did not find structural behavior signals for the compared entity.
+- `Functional Change Detected` means at least one behavior signal changed and the report includes reasons.
+- Markdown reports group findings into module-level changes, class-wise changes, mixed-scope method changes, and other refactorings.
 
 ## Architecture overview
 
