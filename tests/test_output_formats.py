@@ -18,6 +18,11 @@ def test_markdown_output_contains_grouped_report() -> None:
                 "Old Scope": None,
                 "New Scope": None,
                 "Functional Change Status": "Functional Change Detected",
+                "Method Diff": (
+                    "@@ -1,2 +1,2 @@\n"
+                    "-def moved_helper(v):\n"
+                    "+def moved_helper(v, strict=False):"
+                ),
             },
         )
     ]
@@ -27,6 +32,8 @@ def test_markdown_output_contains_grouped_report() -> None:
     assert "# PyRef2 Refactoring Report" in output
     assert "## Module-Level Function Moves/Renames" in output
     assert "`pkg/`{`alpha.py` → `beta.py`}:`moved_helper` [Functional Change Detected]" in output
+    assert "```diff" in output
+    assert "@@ -1,2 +1,2 @@" in output
 
 
 def test_serialize_findings_switches_between_json_and_markdown() -> None:
@@ -174,6 +181,12 @@ def test_markdown_reports_non_move_functional_changes() -> None:
             details={
                 "Functional Change Status": "Functional Change Detected",
                 "Functional Change Reasons": ["method body changed"],
+                "Method Diff": (
+                    "@@ -1,2 +1,3 @@\n"
+                    "-def compute(a):\n"
+                    "+def compute(a):\n"
+                    "+    result = a + 1"
+                ),
             },
         )
     ]
@@ -183,3 +196,28 @@ def test_markdown_reports_non_move_functional_changes() -> None:
     assert "## Other Refactorings" in output
     assert "### Modify Method" in output
     assert "`pkg/alpha.py`:`compute` [Functional Change Detected]" in output
+    assert "+    result = a + 1" in output
+
+
+def test_markdown_no_functional_change_has_no_diff_block() -> None:
+    findings = [
+        RefactoringFinding(
+            refactoring_type="Move Method",
+            original="pkg.alpha.same_name",
+            updated="pkg.beta.same_name",
+            location="pkg/beta.py",
+            confidence=0.97,
+            details={
+                "Old Module": "pkg/alpha.py",
+                "New Module": "pkg/beta.py",
+                "Old Scope": None,
+                "New Scope": None,
+                "Functional Change Status": "No Functional Change",
+                "Method Diff": "@@ -1,1 +1,1 @@\n-unchanged\n+unchanged",
+            },
+        )
+    ]
+
+    output = findings_to_markdown(findings)
+
+    assert "```diff" not in output

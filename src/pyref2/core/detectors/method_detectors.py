@@ -6,6 +6,8 @@ to keep the pipeline composable and easy to extend with future strategies.
 
 from __future__ import annotations
 
+import difflib
+
 from pyref2.core.detectors.base import RefactoringDetector
 from pyref2.core.diff_engine import MatchedClass, MatchedMethod, ModuleDiff
 from pyref2.models.refactorings import RefactoringFinding
@@ -55,6 +57,7 @@ class RenameMethodDetector(RefactoringDetector):
                         "New Scope": pair.after.class_name,
                         "Functional Change Status": assessment["status"],
                         "Functional Change Reasons": assessment["reasons"],
+                        "Method Diff": assessment["method_diff"],
                         "Original Line": pair.before.lineno,
                         "Updated Line": pair.after.lineno,
                     },
@@ -88,6 +91,7 @@ class ChangeMethodSignatureDetector(RefactoringDetector):
                         "Updated Line": pair.after.lineno,
                         "Functional Change Status": assessment["status"],
                         "Functional Change Reasons": assessment["reasons"],
+                        "Method Diff": assessment["method_diff"],
                     },
                 )
             )
@@ -129,6 +133,7 @@ class ModifyMethodDetector(RefactoringDetector):
                         "New Scope": pair.after.class_name,
                         "Functional Change Status": assessment["status"],
                         "Functional Change Reasons": assessment["reasons"],
+                        "Method Diff": assessment["method_diff"],
                         "Original Line": pair.before.lineno,
                         "Updated Line": pair.after.lineno,
                     },
@@ -182,6 +187,7 @@ class MoveMethodDetector(RefactoringDetector):
                         "New Scope": pair.after.class_name,
                         "Functional Change Status": assessment["status"],
                         "Functional Change Reasons": assessment["reasons"],
+                        "Method Diff": assessment["method_diff"],
                     },
                 )
             )
@@ -217,6 +223,7 @@ class ExtractMethodDetector(RefactoringDetector):
                             "Extracted Line": added_method.lineno,
                             "Functional Change Status": assessment["status"],
                             "Functional Change Reasons": assessment["reasons"],
+                            "Method Diff": assessment["method_diff"],
                         },
                     )
                 )
@@ -250,6 +257,7 @@ class InlineMethodDetector(RefactoringDetector):
                             "Destination Line": pair.after.lineno,
                             "Functional Change Status": assessment["status"],
                             "Functional Change Reasons": assessment["reasons"],
+                            "Method Diff": assessment["method_diff"],
                         },
                     )
                 )
@@ -303,6 +311,7 @@ def _class_move_findings(
                 "Updated": method_pair.after.name,
                 "Functional Change Status": assessment["status"],
                 "Functional Change Reasons": assessment["reasons"],
+                "Method Diff": assessment["method_diff"],
             }
         )
 
@@ -421,7 +430,40 @@ def _assess_method_functional_change(pair: MatchedMethod) -> dict[str, object]:
         reasons.append("called symbols changed")
 
     status = FUNCTIONAL_STATUS_CHANGED if reasons else FUNCTIONAL_STATUS_NO_CHANGE
+    method_diff: str | None = None
+    if status == FUNCTIONAL_STATUS_CHANGED:
+        method_diff = _build_condensed_method_diff(pair.before.source, pair.after.source)
     return {
         "status": status,
         "reasons": reasons,
+        "method_diff": method_diff,
     }
+
+
+def _build_condensed_method_diff(
+    before_source: str,
+    after_source: str,
+    *,
+    context_lines: int = 1,
+    max_lines: int = 24,
+) -> str | None:
+    diff_lines = list(
+        difflib.unified_diff(
+            before_source.splitlines(),
+            after_source.splitlines(),
+            lineterm="",
+            n=context_lines,
+        )
+    )
+    if not diff_lines:
+        return None
+
+    # Skip file header lines so only method-scoped hunks are shown.
+    if len(diff_lines) >= 2 and diff_lines[0].startswith("---") and diff_lines[1].startswith("+++"):
+        diff_lines = diff_lines[2:]
+
+    if len(diff_lines) > max_lines:
+        kept = max_lines - 1
+        diff_lines = diff_lines[:kept] + ["... (diff truncated)"]
+
+    return "\n".join(diff_lines)

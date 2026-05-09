@@ -138,6 +138,11 @@ def compute(a):
         finding.details.get("Functional Change Status") == "Functional Change Detected"
         for finding in modify_findings
     )
+    assert all(
+        isinstance(finding.details.get("Method Diff"), str)
+        and "@@" in finding.details["Method Diff"]
+        for finding in modify_findings
+    )
 
 
 def test_detect_inline_method_has_functional_status(tmp_path: Path) -> None:

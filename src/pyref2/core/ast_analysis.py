@@ -39,13 +39,13 @@ def parse_module(source: str, module_name: str) -> ModuleEntity:
     # Single pass over module-level nodes to collect top-level and class members.
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            methods.append(_method_from_function(node, module_name, class_name=None))
+            methods.append(_method_from_function(node, source, module_name, class_name=None))
         elif isinstance(node, ast.ClassDef):
             classes.append(_class_from_node(node, module_name))
             for class_item in node.body:
                 if isinstance(class_item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     methods.append(
-                        _method_from_function(class_item, module_name, class_name=node.name)
+                        _method_from_function(class_item, source, module_name, class_name=node.name)
                     )
 
     return ModuleEntity(name=module_name, methods=tuple(methods), classes=tuple(classes))
@@ -70,6 +70,7 @@ def _class_from_node(node: ast.ClassDef, module_name: str) -> ClassEntity:
 
 def _method_from_function(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
+    source: str,
     module_name: str,
     class_name: str | None,
 ) -> MethodEntity:
@@ -87,9 +88,21 @@ def _method_from_function(
         params=params,
         lineno=getattr(node, "lineno", 1),
         end_lineno=getattr(node, "end_lineno", getattr(node, "lineno", 1)),
+        source=_source_segment(
+            source,
+            getattr(node, "lineno", 1),
+            getattr(node, "end_lineno", getattr(node, "lineno", 1)),
+        ),
         body_signature=body_signature,
         called_names=frozenset(collector.called_names),
     )
+
+
+def _source_segment(source: str, lineno: int, end_lineno: int) -> str:
+    lines = source.splitlines()
+    start_index = max(0, lineno - 1)
+    end_index = max(start_index, end_lineno)
+    return "\n".join(lines[start_index:end_index]).rstrip()
 
 
 def _statement_signature(stmt: ast.stmt) -> str:

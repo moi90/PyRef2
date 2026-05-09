@@ -62,6 +62,7 @@ For class signature changes (for example, base-class changes), PyRef2 reports `F
 - Move-related and non-move behavior findings include a functional-change status in JSON and Markdown.
 - In Markdown, same-name method entries are suppressed unless status is `Functional Change Detected`.
 - Class entries can include child method changes used to justify class-level status.
+- When status is `Functional Change Detected`, Markdown includes a condensed unified code diff scoped to the relevant method.
 
 ### Current limitations
 

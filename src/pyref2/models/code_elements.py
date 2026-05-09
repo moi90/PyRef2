@@ -13,6 +13,7 @@ class MethodEntity:
     params: tuple[str, ...]
     lineno: int
     end_lineno: int
+    source: str
     body_signature: tuple[str, ...]
     called_names: frozenset[str] = field(default_factory=frozenset)
 

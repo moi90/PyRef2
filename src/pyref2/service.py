@@ -101,10 +101,10 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
         lines.append("No refactorings detected.")
         return "\n".join(lines)
 
-    module_level: list[str] = []
-    mixed_scope: list[str] = []
+    module_level: list[tuple[str, str | None]] = []
+    mixed_scope: list[tuple[str, str | None]] = []
     class_groups: dict[tuple[str, str, str, str], dict[str, object]] = {}
-    other_findings: dict[str, list[str]] = defaultdict(list)
+    other_findings: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
 
     for finding in findings:
         if finding.refactoring_type == "Move Class":
@@ -137,9 +137,9 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
                     new_name = str(method_change.get("Updated", "<unknown>"))
                     if not _should_render_method_entry(old_name, new_name, child_status):
                         continue
-                    class_groups[key]["children"].append(
-                        f"`{old_name} → {new_name}` [{child_kind}; {child_status}]"
-                    )
+                    child_label = f"`{old_name} → {new_name}` [{child_kind}; {child_status}]"
+                    child_diff = _render_method_diff(method_change, child_status)
+                    class_groups[key]["children"].append((child_label, child_diff))
             continue
 
         if finding.refactoring_type in {"Move Method", "Rename Method"}:
@@ -149,18 +149,24 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
                 continue
             if old_scope is None and new_scope is None:
                 module_level.append(
-                    _format_change_line(old_path, old_name, new_path, new_name, status)
+                    (
+                        _format_change_line(old_path, old_name, new_path, new_name, status),
+                        _render_method_diff(finding.details, status),
+                    )
                 )
                 continue
 
             if (old_scope is None) != (new_scope is None):
                 mixed_scope.append(
-                    _format_change_line(
-                        old_path,
-                        _scoped_symbol(old_scope, old_name),
-                        new_path,
-                        _scoped_symbol(new_scope, new_name),
-                        status,
+                    (
+                        _format_change_line(
+                            old_path,
+                            _scoped_symbol(old_scope, old_name),
+                            new_path,
+                            _scoped_symbol(new_scope, new_name),
+                            status,
+                        ),
+                        _render_method_diff(finding.details, status),
                     )
                 )
                 continue
@@ -180,23 +186,29 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
                 },
             )
             class_groups[group_key]["children"].append(
-                f"`{old_name} → {new_name}` [{finding.refactoring_type}; {status}]"
+                (
+                    f"`{old_name} → {new_name}` [{finding.refactoring_type}; {status}]",
+                    _render_method_diff(finding.details, status),
+                )
             )
             continue
 
         other_findings[finding.refactoring_type].append(
-            _format_change_line(
-                *_split_reference(finding.original),
-                *_split_reference(finding.updated),
-                _functional_status(finding),
+            (
+                _format_change_line(
+                    *_split_reference(finding.original),
+                    *_split_reference(finding.updated),
+                    _functional_status(finding),
+                ),
+                _render_method_diff(finding.details, _functional_status(finding)),
             )
         )
 
     lines.append("## Module-Level Function Moves/Renames")
     lines.append("")
     if module_level:
-        for entry in sorted(module_level):
-            lines.append(f"- {entry}")
+        for entry, diff_block in sorted(module_level, key=lambda item: item[0]):
+            _append_markdown_entry(lines, entry, diff_block, indent="  ")
     else:
         lines.append("- None")
 
@@ -205,15 +217,21 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
         for key in sorted(class_groups):
             group = class_groups[key]
             lines.append(f"- {group['parent']}")
-            for child in sorted(group["children"]):
-                lines.append(f"  - {child}")
+            for child, diff_block in sorted(group["children"], key=lambda item: item[0]):
+                _append_markdown_entry(
+                    lines,
+                    child,
+                    diff_block,
+                    bullet_prefix="  - ",
+                    indent="    ",
+                )
     else:
         lines.append("- None")
 
     lines.extend(["", "## Mixed Scope Method Changes", ""])
     if mixed_scope:
-        for entry in sorted(mixed_scope):
-            lines.append(f"- {entry}")
+        for entry, diff_block in sorted(mixed_scope, key=lambda item: item[0]):
+            _append_markdown_entry(lines, entry, diff_block, indent="  ")
     else:
         lines.append("- None")
 
@@ -222,8 +240,11 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
         for refactoring_type in sorted(other_findings):
             lines.append(f"### {refactoring_type}")
             lines.append("")
-            for entry in sorted(other_findings[refactoring_type]):
-                lines.append(f"- {entry}")
+            for entry, diff_block in sorted(
+                other_findings[refactoring_type],
+                key=lambda item: item[0],
+            ):
+                _append_markdown_entry(lines, entry, diff_block, indent="  ")
             lines.append("")
 
     return "\n".join(lines)
@@ -231,6 +252,33 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
 
 def _functional_status(finding: RefactoringFinding) -> str:
     return str(finding.details.get("Functional Change Status", "Unknown"))
+
+
+def _render_method_diff(details: dict[str, object], status: str) -> str | None:
+    if status != "Functional Change Detected":
+        return None
+    method_diff = details.get("Method Diff")
+    if not isinstance(method_diff, str) or not method_diff.strip():
+        return None
+    return method_diff
+
+
+def _append_markdown_entry(
+    lines: list[str],
+    entry: str,
+    diff_block: str | None,
+    *,
+    bullet_prefix: str = "- ",
+    indent: str,
+) -> None:
+    lines.append(f"{bullet_prefix}{entry}")
+    if diff_block is None:
+        return
+
+    lines.append(f"{indent}```diff")
+    for diff_line in diff_block.splitlines():
+        lines.append(f"{indent}{diff_line}")
+    lines.append(f"{indent}```")
 
 
 def _should_render_method_entry(old_name: str, new_name: str, status: str) -> bool:
