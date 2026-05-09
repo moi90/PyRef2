@@ -161,3 +161,25 @@ def test_markdown_output_without_common_prefix_has_no_braces() -> None:
         "`pkg/alpha.py`:`old_name` → `core/beta.py`:`new_name` "
         "[Functional Change Detected]"
     ) in output
+
+
+def test_markdown_reports_non_move_functional_changes() -> None:
+    findings = [
+        RefactoringFinding(
+            refactoring_type="Modify Method",
+            original="pkg.alpha.compute",
+            updated="pkg.alpha.compute",
+            location="pkg/alpha.py",
+            confidence=0.72,
+            details={
+                "Functional Change Status": "Functional Change Detected",
+                "Functional Change Reasons": ["method body changed"],
+            },
+        )
+    ]
+
+    output = findings_to_markdown(findings)
+
+    assert "## Other Refactorings" in output
+    assert "### Modify Method" in output
+    assert "`pkg/alpha.py`:`compute` [Functional Change Detected]" in output

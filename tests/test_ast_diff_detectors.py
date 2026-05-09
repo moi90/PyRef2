@@ -70,7 +70,12 @@ def compute(a, b):
     )
 
     findings = analyze_files(before, after)
-    assert any(f.refactoring_type == "Add Parameter" for f in findings)
+    add_parameter_findings = [f for f in findings if f.refactoring_type == "Add Parameter"]
+    assert add_parameter_findings
+    assert all(
+        finding.details.get("Functional Change Status") == "Functional Change Detected"
+        for finding in add_parameter_findings
+    )
 
 
 def test_detect_extract_method(tmp_path: Path) -> None:
@@ -99,4 +104,67 @@ def process(v):
     )
 
     findings = analyze_files(before, after)
-    assert any(f.refactoring_type == "Extract Method" for f in findings)
+    extract_findings = [f for f in findings if f.refactoring_type == "Extract Method"]
+    assert extract_findings
+    assert all(
+        "Functional Change Status" in finding.details for finding in extract_findings
+    )
+
+
+def test_detect_modify_method_without_move_or_rename(tmp_path: Path) -> None:
+    before = _write_module(
+        tmp_path,
+        "before.py",
+        """
+def compute(a):
+    return a + 1
+""",
+    )
+    after = _write_module(
+        tmp_path,
+        "after.py",
+        """
+def compute(a):
+    result = a + 1
+    return result + 1
+""",
+    )
+
+    findings = analyze_files(before, after)
+    modify_findings = [f for f in findings if f.refactoring_type == "Modify Method"]
+
+    assert modify_findings
+    assert all(
+        finding.details.get("Functional Change Status") == "Functional Change Detected"
+        for finding in modify_findings
+    )
+
+
+def test_detect_inline_method_has_functional_status(tmp_path: Path) -> None:
+    before = _write_module(
+        tmp_path,
+        "before.py",
+        """
+def helper(v):
+    return v + 1
+
+def process(v):
+    return helper(v)
+""",
+    )
+    after = _write_module(
+        tmp_path,
+        "after.py",
+        """
+def process(v):
+    return v + 1
+""",
+    )
+
+    findings = analyze_files(before, after)
+    inline_findings = [f for f in findings if f.refactoring_type == "Inline Method"]
+
+    assert inline_findings
+    assert all(
+        "Functional Change Status" in finding.details for finding in inline_findings
+    )

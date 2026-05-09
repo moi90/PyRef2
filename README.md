@@ -24,17 +24,26 @@ PyRef2 uses a small layered pipeline so each stage stays testable and replaceabl
 
 ## How functional changes are detected
 
-PyRef2 currently reports functional-change status for move-related findings using static structural checks.
+PyRef2 reports functional-change status using static structural checks for move-related and non-move findings.
 
 ### Method-level checks
 
-For method moves and method renames, PyRef2 marks `Functional Change Detected` when any of these differ between before/after revisions:
+For method comparisons, PyRef2 marks `Functional Change Detected` when any of these differ between before/after revisions:
 
 - `body_signature`: normalized AST statement signatures for the method body
 - `params`: method parameter tuple
 - `called_names`: set of called symbol names detected in the method body
 
 If none of those differ, status is `No Functional Change`.
+
+These method-level checks are used by:
+
+- Move Method
+- Rename Method
+- Modify Method (same name, same scope, same module, but behavior changed)
+- Change Method Signature
+- Extract Method (assesses whether the source caller changed)
+- Inline Method (assesses whether the destination caller changed)
 
 ### Class-level checks
 
@@ -46,9 +55,11 @@ For class moves, PyRef2 combines class-level and member-level signals:
 
 If none of the above is true, class status is `No Functional Change`.
 
+For class signature changes (for example, base-class changes), PyRef2 reports `Functional Change Detected` with reasons when the class signature differs.
+
 ### Reporting behavior
 
-- Move-related report entries include a functional-change status in JSON and Markdown.
+- Move-related and non-move behavior findings include a functional-change status in JSON and Markdown.
 - In Markdown, same-name method entries are suppressed unless status is `Functional Change Detected`.
 - Class entries can include child method changes used to justify class-level status.
 

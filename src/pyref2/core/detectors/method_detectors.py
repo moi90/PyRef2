@@ -73,6 +73,7 @@ class ChangeMethodSignatureDetector(RefactoringDetector):
                 continue
 
             param_type = _param_change_type(pair)
+            assessment = _assess_method_functional_change(pair)
             findings.append(
                 RefactoringFinding(
                     refactoring_type=param_type,
@@ -83,6 +84,51 @@ class ChangeMethodSignatureDetector(RefactoringDetector):
                     details={
                         "Old Params": list(pair.before.params),
                         "New Params": list(pair.after.params),
+                        "Original Line": pair.before.lineno,
+                        "Updated Line": pair.after.lineno,
+                        "Functional Change Status": assessment["status"],
+                        "Functional Change Reasons": assessment["reasons"],
+                    },
+                )
+            )
+        return findings
+
+
+class ModifyMethodDetector(RefactoringDetector):
+    name = "modify-method"
+
+    def detect(self, module_diff: ModuleDiff) -> list[RefactoringFinding]:
+        findings: list[RefactoringFinding] = []
+        for pair in module_diff.matched_methods:
+            # Only report same-name, same-scope, same-module changes here.
+            if pair.before.name != pair.after.name:
+                continue
+            if pair.before.module_name != pair.after.module_name:
+                continue
+            if pair.before.class_name != pair.after.class_name:
+                continue
+            # Signature changes are reported by ChangeMethodSignatureDetector.
+            if pair.before.params != pair.after.params:
+                continue
+
+            assessment = _assess_method_functional_change(pair)
+            if assessment["status"] != FUNCTIONAL_STATUS_CHANGED:
+                continue
+
+            findings.append(
+                RefactoringFinding(
+                    refactoring_type="Modify Method",
+                    original=pair.before.qualified_name,
+                    updated=pair.after.qualified_name,
+                    location=pair.after.module_name,
+                    confidence=pair.similarity,
+                    details={
+                        "Old Module": pair.before.module_name,
+                        "New Module": pair.after.module_name,
+                        "Old Scope": pair.before.class_name,
+                        "New Scope": pair.after.class_name,
+                        "Functional Change Status": assessment["status"],
+                        "Functional Change Reasons": assessment["reasons"],
                         "Original Line": pair.before.lineno,
                         "Updated Line": pair.after.lineno,
                     },
@@ -158,6 +204,7 @@ class ExtractMethodDetector(RefactoringDetector):
                     continue
 
                 confidence = min(0.95, 0.55 + 0.04 * len(added_method.body_signature))
+                assessment = _assess_method_functional_change(pair)
                 findings.append(
                     RefactoringFinding(
                         refactoring_type="Extract Method",
@@ -168,6 +215,8 @@ class ExtractMethodDetector(RefactoringDetector):
                         details={
                             "Source Line": pair.before.lineno,
                             "Extracted Line": added_method.lineno,
+                            "Functional Change Status": assessment["status"],
+                            "Functional Change Reasons": assessment["reasons"],
                         },
                     )
                 )
@@ -187,6 +236,8 @@ class InlineMethodDetector(RefactoringDetector):
                 if removed_method.name in pair.after.called_names:
                     continue
 
+                assessment = _assess_method_functional_change(pair)
+
                 findings.append(
                     RefactoringFinding(
                         refactoring_type="Inline Method",
@@ -197,6 +248,8 @@ class InlineMethodDetector(RefactoringDetector):
                         details={
                             "Removed Line": removed_method.lineno,
                             "Destination Line": pair.after.lineno,
+                            "Functional Change Status": assessment["status"],
+                            "Functional Change Reasons": assessment["reasons"],
                         },
                     )
                 )
@@ -309,6 +362,8 @@ def _class_rename_findings(pair: MatchedClass) -> list[RefactoringFinding]:
 def _class_base_change_findings(pair: MatchedClass) -> list[RefactoringFinding]:
     if pair.before.bases == pair.after.bases:
         return []
+
+    reasons = ["class bases changed"]
     return [
         RefactoringFinding(
             refactoring_type="Change Class Signature",
@@ -316,7 +371,12 @@ def _class_base_change_findings(pair: MatchedClass) -> list[RefactoringFinding]:
             updated=pair.after.qualified_name,
             location=pair.after.module_name,
             confidence=max(0.55, pair.similarity),
-            details={"Old Bases": list(pair.before.bases), "New Bases": list(pair.after.bases)},
+            details={
+                "Old Bases": list(pair.before.bases),
+                "New Bases": list(pair.after.bases),
+                "Functional Change Status": FUNCTIONAL_STATUS_CHANGED,
+                "Functional Change Reasons": reasons,
+            },
         )
     ]
 
