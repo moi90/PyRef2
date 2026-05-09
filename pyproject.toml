@@ -11,6 +11,9 @@ dependencies = [
     "gitpython>=3.1.43",
 ]
 
+[project.urls]
+Repository = "https://github.com/moi90/PyRef2"
+
 [project.scripts]
 pyref2 = "pyref2:main"
 
