@@ -29,6 +29,7 @@ uv sync --extra dev
 uv run pyref2 analyze-files --before path/to/old.py --after path/to/new.py
 uv run pyref2 analyze-tree --before-root path/to/revision-A --after-root path/to/revision-B
 uv run pyref2 analyze-revisions --repo path/to/repo origin/main..HEAD
+uv run pyref2 analyze-revisions --format markdown --repo path/to/repo origin/main..HEAD
 ```
 
 ## Git revision analysis
@@ -37,6 +38,7 @@ Use `analyze-revisions` to compare repository states directly from Git without e
 
 - Pass a standard Git double-dot range: `uv run pyref2 analyze-revisions --repo path/to/repo origin/main..HEAD`
 - `main..feature` means: analyze the total effect between the tree at `main` and the tree at `feature`, which matches the common feature-branch review workflow.
+- Add `--format markdown` to get a developer-oriented report grouped by refactoring type.
 
 ## Tree test fixtures
 

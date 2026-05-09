@@ -6,7 +6,10 @@ This is the bridge between CLI/repository adapters and the pure detection core.
 from __future__ import annotations
 
 import json
+import posixpath
+from collections import defaultdict
 from pathlib import Path
+from typing import Literal
 
 from pyref2.core.ast_analysis import module_from_file
 from pyref2.core.detectors import default_detectors
@@ -90,6 +93,132 @@ def findings_to_json(findings: list[RefactoringFinding]) -> str:
     return json.dumps(payload, indent=2)
 
 
-def write_findings(path: str, findings: list[RefactoringFinding]) -> None:
-    output = findings_to_json(findings)
+def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
+    """Render findings as a readable report for developers."""
+    lines = ["# PyRef2 Refactoring Report", "", f"Total findings: {len(findings)}", ""]
+
+    if not findings:
+        lines.append("No refactorings detected.")
+        return "\n".join(lines)
+
+    grouped: dict[str, list[RefactoringFinding]] = defaultdict(list)
+    for finding in findings:
+        grouped[finding.refactoring_type].append(finding)
+
+    for refactoring_type in sorted(grouped):
+        grouped_findings = grouped[refactoring_type]
+        lines.extend(
+            [
+                f"## {refactoring_type} ({len(grouped_findings)})",
+                "",
+                "| Change | Confidence |",
+                "| --- | ---: |",
+            ]
+        )
+
+        for finding in grouped_findings:
+            change = _format_compact_change(finding.original, finding.updated)
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape_markdown_cell(change),
+                        f"{finding.confidence:.2f}",
+                    ]
+                )
+                + " |"
+            )
+
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def serialize_findings(
+    findings: list[RefactoringFinding],
+    output_format: Literal["json", "markdown"] = "json",
+) -> str:
+    """Serialize findings in the requested output format."""
+    if output_format == "markdown":
+        return findings_to_markdown(findings)
+    return findings_to_json(findings)
+
+
+def write_findings(
+    path: str,
+    findings: list[RefactoringFinding],
+    output_format: Literal["json", "markdown"] = "json",
+) -> None:
+    output = serialize_findings(findings, output_format)
     Path(path).write_text(output, encoding="utf-8")
+
+
+def _escape_markdown_cell(value: str) -> str:
+    """Escape markdown table cell text to avoid malformed reports."""
+    return value.replace("|", "\\|").replace("\n", " ").strip()
+
+
+def _format_compact_change(original: str, updated: str) -> str:
+    """Render one finding as `<common-prefix>/{path-a:symbol -> path-b:symbol}`."""
+    old_path, old_symbol = _split_reference(original)
+    new_path, new_symbol = _split_reference(updated)
+
+    common_prefix = _common_path_prefix(old_path, new_path)
+
+    if common_prefix == ".":
+        return f"`{old_path}:{old_symbol}` → `{new_path}:{new_symbol}`"
+
+    old_suffix = _path_suffix(old_path, common_prefix)
+    new_suffix = _path_suffix(new_path, common_prefix)
+
+    return (
+        f"`{common_prefix}/`"
+        + "{"
+        + f"`{old_suffix}:{old_symbol}` → `{new_suffix}:{new_symbol}`"
+        + "}"
+    )
+
+
+def _split_reference(reference: str) -> tuple[str, str]:
+    """Split `module.path.symbol` into `module/path.py`, `symbol`."""
+    py_marker = ".py."
+    if py_marker in reference:
+        marker_index = reference.index(py_marker)
+        path = reference[: marker_index + 3]
+        symbol = reference[marker_index + len(py_marker) :]
+        return path, symbol or "<module>"
+
+    if reference.endswith(".py"):
+        return reference, "<module>"
+
+    parts = reference.split(".")
+    if len(parts) < 2:
+        return reference, "<module>"
+
+    symbol_segment_count = 1
+    if len(parts) >= 3 and parts[-2][:1].isupper():
+        symbol_segment_count = 2
+
+    module_parts = parts[:-symbol_segment_count]
+    symbol_parts = parts[-symbol_segment_count:]
+
+    path = "/".join(module_parts) + ".py"
+    symbol = ".".join(symbol_parts) if symbol_parts else "<module>"
+    return path, symbol
+
+
+def _common_path_prefix(left: str, right: str) -> str:
+    """Return shared path prefix using path segment boundaries."""
+    shared_prefix = posixpath.commonpath([left, right])
+    if shared_prefix in ("", "."):
+        return "."
+    return shared_prefix
+
+
+def _path_suffix(path: str, prefix: str) -> str:
+    """Return path without prefix while preserving filename-only outputs."""
+    if prefix == ".":
+        return path
+    if path == prefix:
+        return "."
+    return path.removeprefix(prefix + "/")

@@ -9,7 +9,7 @@ from pyref2.service import (
     analyze_files,
     analyze_revision_range,
     analyze_trees,
-    findings_to_json,
+    serialize_findings,
     write_findings,
 )
 
@@ -23,6 +23,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Analyze refactorings between two Python files",
     )
     analyze_files_parser.add_argument(
+        "--format",
+        choices=("json", "markdown"),
+        default="json",
+        help="Output format (default: json)",
+    )
+    analyze_files_parser.add_argument(
         "--before",
         required=True,
         help="Path to the older file revision",
@@ -32,11 +38,21 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Path to the newer file revision",
     )
-    analyze_files_parser.add_argument("--output", required=False, help="Optional JSON output path")
+    analyze_files_parser.add_argument(
+        "--output",
+        required=False,
+        help="Optional output path (content follows --format)",
+    )
 
     analyze_tree_parser = subparsers.add_parser(
         "analyze-tree",
         help="Analyze refactorings between two source tree revisions",
+    )
+    analyze_tree_parser.add_argument(
+        "--format",
+        choices=("json", "markdown"),
+        default="json",
+        help="Output format (default: json)",
     )
     analyze_tree_parser.add_argument(
         "--before-root",
@@ -48,11 +64,21 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Path to the newer source tree revision",
     )
-    analyze_tree_parser.add_argument("--output", required=False, help="Optional JSON output path")
+    analyze_tree_parser.add_argument(
+        "--output",
+        required=False,
+        help="Optional output path (content follows --format)",
+    )
 
     analyze_revisions_parser = subparsers.add_parser(
         "analyze-revisions",
         help="Analyze refactorings between two Git revisions or a revision range",
+    )
+    analyze_revisions_parser.add_argument(
+        "--format",
+        choices=("json", "markdown"),
+        default="json",
+        help="Output format (default: json)",
     )
     analyze_revisions_parser.add_argument(
         "--repo",
@@ -66,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_revisions_parser.add_argument(
         "--output",
         required=False,
-        help="Optional JSON output path",
+        help="Optional output path (content follows --format)",
     )
 
     return parser
@@ -80,29 +106,29 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "analyze-files":
         findings = analyze_files(args.before, args.after)
         if args.output:
-            write_findings(args.output, findings)
+            write_findings(args.output, findings, output_format=args.format)
             print(f"Wrote {len(findings)} findings to {args.output}")
         else:
-            print(findings_to_json(findings))
+            print(serialize_findings(findings, output_format=args.format))
         return 0
 
     if args.command == "analyze-tree":
         findings = analyze_trees(args.before_root, args.after_root)
         if args.output:
-            write_findings(args.output, findings)
+            write_findings(args.output, findings, output_format=args.format)
             print(f"Wrote {len(findings)} findings to {args.output}")
         else:
-            print(findings_to_json(findings))
+            print(serialize_findings(findings, output_format=args.format))
         return 0
 
     if args.command == "analyze-revisions":
         findings = analyze_revision_range(args.repo, args.revision_range)
 
         if args.output:
-            write_findings(args.output, findings)
+            write_findings(args.output, findings, output_format=args.format)
             print(f"Wrote {len(findings)} findings to {args.output}")
         else:
-            print(findings_to_json(findings))
+            print(serialize_findings(findings, output_format=args.format))
         return 0
 
     parser.print_help()
