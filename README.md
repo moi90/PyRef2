@@ -22,6 +22,40 @@ PyRef2 uses a small layered pipeline so each stage stays testable and replaceabl
 - Service layer (`service.py`): orchestrates parse → diff → detect and returns sorted findings.
 - Interface layer (`cli/commands.py`): exposes `analyze-files` and emits schema-versioned JSON output.
 
+## How functional changes are detected
+
+PyRef2 currently reports functional-change status for move-related findings using static structural checks.
+
+### Method-level checks
+
+For method moves and method renames, PyRef2 marks `Functional Change Detected` when any of these differ between before/after revisions:
+
+- `body_signature`: normalized AST statement signatures for the method body
+- `params`: method parameter tuple
+- `called_names`: set of called symbol names detected in the method body
+
+If none of those differ, status is `No Functional Change`.
+
+### Class-level checks
+
+For class moves, PyRef2 combines class-level and member-level signals:
+
+- class bases changed
+- class method-name set changed
+- any contained matched method is marked `Functional Change Detected`
+
+If none of the above is true, class status is `No Functional Change`.
+
+### Reporting behavior
+
+- Move-related report entries include a functional-change status in JSON and Markdown.
+- In Markdown, same-name method entries are suppressed unless status is `Functional Change Detected`.
+- Class entries can include child method changes used to justify class-level status.
+
+### Current limitations
+
+This is a static heuristic, not dynamic execution equivalence. It does not guarantee runtime equivalence in all cases. In particular, behavior can still change through effects not captured by the current signals (for example, external state interactions or semantics-preserving AST rewrites that alter call-name sets).
+
 ## Quickstart
 
 ```bash

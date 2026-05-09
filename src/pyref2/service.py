@@ -94,44 +94,226 @@ def findings_to_json(findings: list[RefactoringFinding]) -> str:
 
 
 def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
-    """Render findings as a readable report for developers."""
+    """Render findings as a hierarchical report for developers."""
     lines = ["# PyRef2 Refactoring Report", "", f"Total findings: {len(findings)}", ""]
 
     if not findings:
         lines.append("No refactorings detected.")
         return "\n".join(lines)
 
-    grouped: dict[str, list[RefactoringFinding]] = defaultdict(list)
-    for finding in findings:
-        grouped[finding.refactoring_type].append(finding)
+    module_level: list[str] = []
+    mixed_scope: list[str] = []
+    class_groups: dict[tuple[str, str, str, str], dict[str, object]] = {}
+    other_findings: dict[str, list[str]] = defaultdict(list)
 
-    for refactoring_type in sorted(grouped):
-        grouped_findings = grouped[refactoring_type]
-        lines.extend(
-            [
-                f"## {refactoring_type} ({len(grouped_findings)})",
-                "",
-                "| Change | Confidence |",
-                "| --- | ---: |",
-            ]
+    for finding in findings:
+        if finding.refactoring_type == "Move Class":
+            old_path, old_symbol = _split_reference(finding.original)
+            new_path, new_symbol = _split_reference(finding.updated)
+            key = (old_path, old_symbol, new_path, new_symbol)
+            class_groups.setdefault(
+                key,
+                {
+                    "parent": _format_change_line(
+                        old_path,
+                        old_symbol,
+                        new_path,
+                        new_symbol,
+                        _functional_status(finding),
+                    ),
+                    "children": [],
+                },
+            )
+            method_changes = finding.details.get("Method Changes", [])
+            if isinstance(method_changes, list):
+                for method_change in method_changes:
+                    if not isinstance(method_change, dict):
+                        continue
+                    child_status = str(
+                        method_change.get("Functional Change Status", "Unknown")
+                    )
+                    child_kind = str(method_change.get("Kind", "Method Change"))
+                    old_name = str(method_change.get("Original", "<unknown>"))
+                    new_name = str(method_change.get("Updated", "<unknown>"))
+                    if not _should_render_method_entry(old_name, new_name, child_status):
+                        continue
+                    class_groups[key]["children"].append(
+                        f"`{old_name} → {new_name}` [{child_kind}; {child_status}]"
+                    )
+            continue
+
+        if finding.refactoring_type in {"Move Method", "Rename Method"}:
+            old_path, old_scope, old_name, new_path, new_scope, new_name = _method_context(finding)
+            status = _functional_status(finding)
+            if not _should_render_method_entry(old_name, new_name, status):
+                continue
+            if old_scope is None and new_scope is None:
+                module_level.append(
+                    _format_change_line(old_path, old_name, new_path, new_name, status)
+                )
+                continue
+
+            if (old_scope is None) != (new_scope is None):
+                mixed_scope.append(
+                    _format_change_line(
+                        old_path,
+                        _scoped_symbol(old_scope, old_name),
+                        new_path,
+                        _scoped_symbol(new_scope, new_name),
+                        status,
+                    )
+                )
+                continue
+
+            group_key = (old_path, old_scope or "<module>", new_path, new_scope or "<module>")
+            class_groups.setdefault(
+                group_key,
+                {
+                    "parent": _format_change_line(
+                        old_path,
+                        old_scope or "<module>",
+                        new_path,
+                        new_scope or "<module>",
+                        "Derived",
+                    ),
+                    "children": [],
+                },
+            )
+            class_groups[group_key]["children"].append(
+                f"`{old_name} → {new_name}` [{finding.refactoring_type}; {status}]"
+            )
+            continue
+
+        other_findings[finding.refactoring_type].append(
+            _format_change_line(
+                *_split_reference(finding.original),
+                *_split_reference(finding.updated),
+                _functional_status(finding),
+            )
         )
 
-        for finding in grouped_findings:
-            change = _format_compact_change(finding.original, finding.updated)
-            lines.append(
-                "| "
-                + " | ".join(
-                    [
-                        _escape_markdown_cell(change),
-                        f"{finding.confidence:.2f}",
-                    ]
-                )
-                + " |"
-            )
+    lines.append("## Module-Level Function Moves/Renames")
+    lines.append("")
+    if module_level:
+        for entry in sorted(module_level):
+            lines.append(f"- {entry}")
+    else:
+        lines.append("- None")
 
-        lines.append("")
+    lines.extend(["", "## Class-Wise Changes", ""])
+    if class_groups:
+        for key in sorted(class_groups):
+            group = class_groups[key]
+            lines.append(f"- {group['parent']}")
+            for child in sorted(group["children"]):
+                lines.append(f"  - {child}")
+    else:
+        lines.append("- None")
+
+    lines.extend(["", "## Mixed Scope Method Changes", ""])
+    if mixed_scope:
+        for entry in sorted(mixed_scope):
+            lines.append(f"- {entry}")
+    else:
+        lines.append("- None")
+
+    if other_findings:
+        lines.extend(["", "## Other Refactorings", ""])
+        for refactoring_type in sorted(other_findings):
+            lines.append(f"### {refactoring_type}")
+            lines.append("")
+            for entry in sorted(other_findings[refactoring_type]):
+                lines.append(f"- {entry}")
+            lines.append("")
 
     return "\n".join(lines)
+
+
+def _functional_status(finding: RefactoringFinding) -> str:
+    return str(finding.details.get("Functional Change Status", "Unknown"))
+
+
+def _should_render_method_entry(old_name: str, new_name: str, status: str) -> bool:
+    if old_name != new_name:
+        return True
+    return status == "Functional Change Detected"
+
+
+def _format_change_line(
+    old_path: str,
+    old_symbol: str,
+    new_path: str,
+    new_symbol: str,
+    status: str,
+) -> str:
+    compact_change = _format_compact_change_line(old_path, old_symbol, new_path, new_symbol)
+    return f"{compact_change} [{status}]"
+
+
+def _format_compact_change_line(
+    old_path: str,
+    old_symbol: str,
+    new_path: str,
+    new_symbol: str,
+) -> str:
+    if old_path == new_path:
+        if old_symbol == new_symbol:
+            return f"`{old_path}`:`{old_symbol}`"
+        return f"`{old_path}`:{{`{old_symbol}` → `{new_symbol}`}}"
+
+    common_prefix = _common_path_prefix(old_path, new_path)
+    if common_prefix == ".":
+        return f"`{old_path}`:`{old_symbol}` → `{new_path}`:`{new_symbol}`"
+
+    old_suffix = _path_suffix(old_path, common_prefix)
+    new_suffix = _path_suffix(new_path, common_prefix)
+
+    if old_symbol == new_symbol:
+        return f"`{common_prefix}/`{{`{old_suffix}` → `{new_suffix}`}}:`{old_symbol}`"
+
+    return (
+        f"`{common_prefix}/`{{`{old_suffix}`:`{old_symbol}` → "
+        f"`{new_suffix}`:`{new_symbol}`}}"
+    )
+
+
+def _scoped_symbol(scope: str | None, name: str) -> str:
+    if scope is None:
+        return name
+    return f"{scope}.{name}"
+
+
+def _method_context(
+    finding: RefactoringFinding,
+) -> tuple[str, str | None, str, str, str | None, str]:
+    old_path, old_symbol = _split_reference(finding.original)
+    new_path, new_symbol = _split_reference(finding.updated)
+
+    old_scope, old_name = _split_scoped_symbol(old_symbol)
+    new_scope, new_name = _split_scoped_symbol(new_symbol)
+
+    detail_old_module = finding.details.get("Old Module")
+    detail_new_module = finding.details.get("New Module")
+    detail_old_scope = finding.details.get("Old Scope")
+    detail_new_scope = finding.details.get("New Scope")
+
+    if isinstance(detail_old_module, str) and detail_old_module:
+        old_path = detail_old_module
+    if isinstance(detail_new_module, str) and detail_new_module:
+        new_path = detail_new_module
+    if detail_old_scope is None or isinstance(detail_old_scope, str):
+        old_scope = detail_old_scope
+    if detail_new_scope is None or isinstance(detail_new_scope, str):
+        new_scope = detail_new_scope
+
+    return old_path, old_scope, old_name, new_path, new_scope, new_name
+
+
+def _split_scoped_symbol(symbol: str) -> tuple[str | None, str]:
+    if "." not in symbol:
+        return None, symbol
+    scope, name = symbol.split(".", maxsplit=1)
+    return scope, name
 
 
 def serialize_findings(
