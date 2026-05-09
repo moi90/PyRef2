@@ -1,6 +1,8 @@
 # PyRef2
 
-PyRef2 is based on the core idea behind PyRef: automatically detecting refactorings in Python code. It extends that idea with a typed Python 3.13 codebase, direct Git revision analysis, structured JSON and Markdown reporting, hierarchical change summaries, and explicit functional-change detection for both refactoring-related and standalone behavior changes.
+[![PyPI version](https://img.shields.io/pypi/v/pyref2.svg)](https://pypi.org/project/pyref2/)
+
+PyRef2 is based on the core idea behind [PyRef](https://github.com/PyRef/PyRef): automatically detecting refactorings in Python code. It extends that idea with a typed Python 3.13 codebase, direct Git revision analysis, structured JSON and Markdown reporting, hierarchical change summaries, and explicit functional-change detection for both refactoring-related and standalone behavior changes.
 
 Use it when you need a fast, review-friendly report for questions like:
 
