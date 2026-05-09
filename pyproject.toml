@@ -1,6 +1,6 @@
 [project]
 name = "pyref2"
-version = "0.1.0"
+version = "0.1.1"
 description = "Detect Python refactorings across Git revisions with functional-change reporting"
 readme = "README.md"
 authors = [
