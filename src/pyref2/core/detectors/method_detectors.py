@@ -7,6 +7,7 @@ to keep the pipeline composable and easy to extend with future strategies.
 from __future__ import annotations
 
 import difflib
+import textwrap
 
 from pyref2.core.detectors.base import RefactoringDetector
 from pyref2.core.diff_engine import MatchedClass, MatchedMethod, MatchedSymbol, ModuleDiff
@@ -684,12 +685,20 @@ def _assess_method_functional_change(pair: MatchedMethod) -> dict[str, object]:
     status = FUNCTIONAL_STATUS_CHANGED if reasons else FUNCTIONAL_STATUS_NO_CHANGE
     method_diff: str | None = None
     if status == FUNCTIONAL_STATUS_CHANGED:
-        method_diff = _build_condensed_method_diff(pair.before.source, pair.after.source)
+        method_diff = _build_condensed_method_diff(
+            _normalize_method_source_for_diff(pair.before.source),
+            _normalize_method_source_for_diff(pair.after.source),
+        )
     return {
         "status": status,
         "reasons": reasons,
         "method_diff": method_diff,
     }
+
+
+def _normalize_method_source_for_diff(source: str) -> str:
+    """Normalize leading indentation so scope moves don't create noisy diffs."""
+    return textwrap.dedent(source)
 
 
 def _build_condensed_method_diff(
