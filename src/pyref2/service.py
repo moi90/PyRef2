@@ -102,99 +102,72 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
         lines.append("No refactorings detected.")
         return "\n".join(lines)
 
-    module_level: list[tuple[str, str | None]] = []
-    mixed_scope: list[tuple[str, str | None]] = []
-    class_groups: dict[tuple[str, str, str, str], dict[str, object]] = {}
-    symbol_moves: list[tuple[str, str | None]] = []
-    symbol_renames: list[tuple[str, str | None]] = []
-    symbol_added: list[str] = []
-    symbol_removed: list[str] = []
-    other_findings: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
+    entries_by_file: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
+
+    def _append_file_entry(file_path: str, entry: str, diff_block: str | None = None) -> None:
+        entries_by_file[file_path].append((entry, diff_block))
 
     for finding in findings:
         if finding.refactoring_type == "Move Class":
             old_path, old_symbol = _split_reference(finding.original)
             new_path, new_symbol = _split_reference(finding.updated)
-            key = (old_path, old_symbol, new_path, new_symbol)
-            class_groups.setdefault(
-                key,
-                {
-                    "parent": _format_change_line(
-                        old_path,
-                        old_symbol,
-                        new_path,
-                        new_symbol,
-                        _functional_status(finding),
-                    ),
-                    "children": [],
-                },
+            status = _functional_status(finding)
+            class_label = "Moved and changed" if status == "Functional Change Detected" else "Moved"
+            _append_file_entry(
+                old_path,
+                f"{_format_compact_change_line(old_path, old_symbol, new_path, new_symbol)} "
+                f"[{class_label}]",
             )
-            method_changes = finding.details.get("Method Changes", [])
-            if isinstance(method_changes, list):
-                for method_change in method_changes:
-                    if not isinstance(method_change, dict):
-                        continue
-                    child_status = str(
-                        method_change.get("Functional Change Status", "Unknown")
-                    )
-                    child_kind = str(method_change.get("Kind", "Method Change"))
-                    old_name = str(method_change.get("Original", "<unknown>"))
-                    new_name = str(method_change.get("Updated", "<unknown>"))
-                    if not _should_render_method_entry(old_name, new_name, child_status):
-                        continue
-                    child_label = f"`{old_name} → {new_name}` [{child_kind}; {child_status}]"
-                    child_diff = _render_method_diff(method_change, child_status)
-                    class_groups[key]["children"].append((child_label, child_diff))
             continue
 
         if finding.refactoring_type in {"Move Method", "Rename Method"}:
             old_path, old_scope, old_name, new_path, new_scope, new_name = _method_context(finding)
             status = _functional_status(finding)
-            if not _should_render_method_entry(old_name, new_name, status):
+            if finding.refactoring_type == "Move Method":
+                change_label = (
+                    "Moved and changed"
+                    if status == "Functional Change Detected"
+                    else "Moved"
+                )
+            else:
+                change_label = "Renamed"
+            should_render = (
+                True
+                if finding.refactoring_type == "Move Method"
+                else _should_render_method_entry(old_name, new_name, status)
+            )
+            if not should_render:
                 continue
             if old_scope is None and new_scope is None:
-                module_level.append(
-                    (
-                        _format_change_line(old_path, old_name, new_path, new_name, status),
-                        _render_method_diff(finding.details, status),
-                    )
+                entry = _format_compact_change_line(old_path, old_name, new_path, new_name)
+                _append_file_entry(
+                    old_path,
+                    f"{entry} [{change_label}]",
+                    _render_method_diff(finding.details, status),
                 )
                 continue
 
             if (old_scope is None) != (new_scope is None):
-                mixed_scope.append(
-                    (
-                        _format_change_line(
-                            old_path,
-                            _scoped_symbol(old_scope, old_name),
-                            new_path,
-                            _scoped_symbol(new_scope, new_name),
-                            status,
-                        ),
-                        _render_method_diff(finding.details, status),
-                    )
+                entry = _format_compact_change_line(
+                    old_path,
+                    _scoped_symbol(old_scope, old_name),
+                    new_path,
+                    _scoped_symbol(new_scope, new_name),
+                )
+                _append_file_entry(
+                    old_path,
+                    f"{entry} [{change_label}]",
+                    _render_method_diff(finding.details, status),
                 )
                 continue
 
-            group_key = (old_path, old_scope or "<module>", new_path, new_scope or "<module>")
-            class_groups.setdefault(
-                group_key,
-                {
-                    "parent": _format_change_line(
-                        old_path,
-                        old_scope or "<module>",
-                        new_path,
-                        new_scope or "<module>",
-                        "Derived",
-                    ),
-                    "children": [],
-                },
-            )
-            class_groups[group_key]["children"].append(
-                (
-                    f"`{old_name} → {new_name}` [{finding.refactoring_type}; {status}]",
-                    _render_method_diff(finding.details, status),
-                )
+            scoped_old = _scoped_symbol(old_scope, old_name)
+            scoped_new = _scoped_symbol(new_scope, new_name)
+            mixed_entry = _format_compact_change_line(old_path, scoped_old, new_path, scoped_new)
+            _append_file_entry(
+                old_path,
+                f"{mixed_entry} [{change_label}]",
+                _render_method_diff(finding.details, status),
             )
             continue
 
@@ -202,128 +175,54 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
             old_path, old_symbol = _split_reference(finding.original)
             new_path, new_symbol = _split_reference(finding.updated)
             status = _functional_status(finding)
-            old_scope = finding.details.get("Old Scope", "")
-            new_scope = finding.details.get("New Scope", "")
-            
-            symbol_label = (
-                f"`{old_symbol}` ({old_scope} → {new_scope}) [{status}]"
-                if old_scope or new_scope
-                else f"`{old_symbol}` [{status}]"
-            )
             compact_ref = _format_compact_change_line(old_path, old_symbol, new_path, new_symbol)
-            entry = f"{compact_ref} {symbol_label}"
-            symbol_moves.append((entry, _render_method_diff(finding.details, status)))
+            moved_label = (
+                "Moved and changed"
+                if status == "Functional Change Detected"
+                else "Moved"
+            )
+            entry = f"{compact_ref} [{moved_label}]"
+            _append_file_entry(old_path, entry, _render_method_diff(finding.details, status))
             continue
 
         if finding.refactoring_type == "Rename Symbol":
             old_path, old_symbol = _split_reference(finding.original)
             new_path, new_symbol = _split_reference(finding.updated)
             status = _functional_status(finding)
-            scope = finding.details.get("Scope", "")
-            
             compact_ref = _format_compact_change_line(old_path, old_symbol, new_path, new_symbol)
-            scope_str = f" ({scope})" if scope else ""
-            entry = f"{compact_ref}{scope_str} [{status}]"
-            symbol_renames.append((entry, _render_method_diff(finding.details, status)))
+            entry = f"{compact_ref} [Renamed]"
+            _append_file_entry(old_path, entry, _render_method_diff(finding.details, status))
             continue
 
         if finding.refactoring_type == "Add Symbol":
             new_path, new_symbol = _split_reference(finding.updated)
-            scope = finding.details.get("Scope", "")
-            kind = finding.details.get("Symbol Kind", "symbol")
-            scope_str = f" ({scope})" if scope else ""
-            symbol_added.append(f"`{new_path}`:`{new_symbol}` [{kind}]{scope_str}")
+            entries_by_file[new_path].append((f"`{new_path}`:`{new_symbol}` [Added]", None))
             continue
 
         if finding.refactoring_type == "Remove Symbol":
             old_path, old_symbol = _split_reference(finding.original)
-            scope = finding.details.get("Scope", "")
-            kind = finding.details.get("Symbol Kind", "symbol")
-            scope_str = f" ({scope})" if scope else ""
-            symbol_removed.append(f"`{old_path}`:`{old_symbol}` [{kind}]{scope_str}")
+            entries_by_file[old_path].append((f"`{old_path}`:`{old_symbol}` [Removed]", None))
             continue
 
-        other_findings[finding.refactoring_type].append(
-            (
-                _format_change_line(
-                    *_split_reference(finding.original),
-                    *_split_reference(finding.updated),
-                    _functional_status(finding),
-                ),
-                _render_method_diff(finding.details, _functional_status(finding)),
-            )
+        status = _functional_status(finding)
+        rendered_status = "Changed" if status == "Functional Change Detected" else status
+        old_path, old_symbol = _split_reference(finding.original)
+        new_path, new_symbol = _split_reference(finding.updated)
+        _append_file_entry(
+            old_path,
+            _format_change_line(old_path, old_symbol, new_path, new_symbol, rendered_status),
+            _render_method_diff(finding.details, status),
         )
 
-    lines.append("## Module-Level Function Moves/Renames")
-    lines.append("")
-    if module_level:
-        for entry, diff_block in sorted(module_level, key=lambda item: item[0]):
-            _append_markdown_entry(lines, entry, diff_block, indent="  ")
-    else:
-        lines.append("- None")
-
-    lines.extend(["", "## Class-Wise Changes", ""])
-    if class_groups:
-        for key in sorted(class_groups):
-            group = class_groups[key]
-            lines.append(f"- {group['parent']}")
-            for child, diff_block in sorted(group["children"], key=lambda item: item[0]):
-                _append_markdown_entry(
-                    lines,
-                    child,
-                    diff_block,
-                    bullet_prefix="  - ",
-                    indent="    ",
-                )
-    else:
-        lines.append("- None")
-
-    lines.extend(["", "## Mixed Scope Method Changes", ""])
-    if mixed_scope:
-        for entry, diff_block in sorted(mixed_scope, key=lambda item: item[0]):
-            _append_markdown_entry(lines, entry, diff_block, indent="  ")
-    else:
-        lines.append("- None")
-
-    lines.extend(["", "## Symbol Moves", ""])
-    if symbol_moves:
-        for entry, diff_block in sorted(symbol_moves, key=lambda item: item[0]):
-            _append_markdown_entry(lines, entry, diff_block, indent="  ")
-    else:
-        lines.append("- None")
-
-    lines.extend(["", "## Symbol Renames", ""])
-    if symbol_renames:
-        for entry, diff_block in sorted(symbol_renames, key=lambda item: item[0]):
-            _append_markdown_entry(lines, entry, diff_block, indent="  ")
-    else:
-        lines.append("- None")
-
-    lines.extend(["", "## Added Symbols", ""])
-    if symbol_added:
-        for entry in sorted(symbol_added):
-            lines.append(f"- {entry}")
-    else:
-        lines.append("- None")
-
-    lines.extend(["", "## Removed Symbols", ""])
-    if symbol_removed:
-        for entry in sorted(symbol_removed):
-            lines.append(f"- {entry}")
-    else:
-        lines.append("- None")
-
-    if other_findings:
-        lines.extend(["", "## Other Refactorings", ""])
-        for refactoring_type in sorted(other_findings):
-            lines.append(f"### {refactoring_type}")
-            lines.append("")
-            for entry, diff_block in sorted(
-                other_findings[refactoring_type],
-                key=lambda item: item[0],
-            ):
-                _append_markdown_entry(lines, entry, diff_block, indent="  ")
-            lines.append("")
+    for file_path in sorted(entries_by_file):
+        for entry, diff_block in sorted(entries_by_file[file_path], key=lambda item: item[0]):
+            _append_markdown_entry(
+                lines,
+                entry,
+                diff_block,
+                bullet_prefix="- ",
+                indent="  ",
+            )
 
     return "\n".join(lines)
 
@@ -336,9 +235,14 @@ def _render_method_diff(details: dict[str, object], status: str) -> str | None:
     if status != "Functional Change Detected":
         return None
     method_diff = details.get("Method Diff")
-    if not isinstance(method_diff, str) or not method_diff.strip():
-        return None
-    return method_diff
+    if isinstance(method_diff, str) and method_diff.strip():
+        return method_diff
+
+    symbol_diff = details.get("Symbol Diff")
+    if isinstance(symbol_diff, str) and symbol_diff.strip():
+        return symbol_diff
+
+    return None
 
 
 def _append_markdown_entry(

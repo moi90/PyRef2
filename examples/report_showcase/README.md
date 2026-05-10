@@ -19,10 +19,10 @@ uv run pyref2 analyze-tree \
 
 ## Intended coverage
 
-- Module-Level Function Moves/Renames: top-level function rename
+- Module-Level Function Moves/Renames: top-level function move across files
 - Class-Wise Changes: class moved from models.py to domain.py
 - Mixed Scope Method Changes: function moved to class method with behavior change
-- Symbol Moves: module-level symbol moved into class scope
+- Symbol Moves: module-level symbol moved into class scope (includes moved-and-changed example)
 - Symbol Renames: module-level symbol rename
 - Added Symbols: unmatched symbol added
 - Removed Symbols: unmatched symbol removed

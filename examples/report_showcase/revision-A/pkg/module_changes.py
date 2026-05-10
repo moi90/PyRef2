@@ -10,3 +10,4 @@ def bridge(data):
 DEBUG = True
 TIMEOUT = 30
 LEGACY_FLAG = "remove-me"
+RETRY_DELAY = 5

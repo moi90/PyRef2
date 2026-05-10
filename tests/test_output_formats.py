@@ -30,8 +30,10 @@ def test_markdown_output_contains_grouped_report() -> None:
     output = findings_to_markdown(findings)
 
     assert "# PyRef2 Refactoring Report" in output
-    assert "## Module-Level Function Moves/Renames" in output
-    assert "`pkg/`{`alpha.py` → `beta.py`}:`moved_helper` [Functional Change Detected]" in output
+    assert (
+        "`pkg/`{`alpha.py` → `beta.py`}:`moved_helper` "
+        "[Moved and changed]"
+    ) in output
     assert "```diff" in output
     assert "@@ -1,2 +1,2 @@" in output
 
@@ -78,15 +80,13 @@ def test_markdown_output_compacts_references_with_nested_common_prefix() -> None
 
     output = findings_to_markdown(findings)
 
-    assert "## Class-Wise Changes" in output
     assert (
         "`foo/bar/pkg/`{`alpha.py` → `beta.py`}:`Customer` "
-        "[Functional Change Detected]"
+        "[Moved and changed]"
     ) in output
-    assert "`transform_item → transform_item_new` [Rename Method; No Functional Change]" in output
 
 
-def test_markdown_suppresses_same_name_method_without_functional_change() -> None:
+def test_markdown_renders_same_name_move_without_functional_change() -> None:
     findings = [
         RefactoringFinding(
             refactoring_type="Move Method",
@@ -106,9 +106,7 @@ def test_markdown_suppresses_same_name_method_without_functional_change() -> Non
 
     output = findings_to_markdown(findings)
 
-    assert "## Module-Level Function Moves/Renames" in output
-    assert "- None" in output
-    assert "same_name" not in output
+    assert "`pkg/`{`alpha.py` → `beta.py`}:`same_name` [Moved]" in output
 
 
 def test_markdown_output_avoids_asymmetric_prefix_compaction() -> None:
@@ -137,10 +135,9 @@ def test_markdown_output_avoids_asymmetric_prefix_compaction() -> None:
 
     output = findings_to_markdown(findings)
 
-    assert "## Mixed Scope Method Changes" in output
     assert (
         "`foo/bar/`{`alpha.py`:`Customer._legacy_helper` → "
-        "`baz/beta.py`:`helper`} [Functional Change Detected]"
+        "`baz/beta.py`:`helper`} [Moved and changed]"
     ) in output
 
 
@@ -166,7 +163,7 @@ def test_markdown_output_without_common_prefix_has_no_braces() -> None:
 
     assert (
         "`pkg/alpha.py`:`old_name` → `core/beta.py`:`new_name` "
-        "[Functional Change Detected]"
+        "[Moved and changed]"
     ) in output
 
 
@@ -193,9 +190,8 @@ def test_markdown_reports_non_move_functional_changes() -> None:
 
     output = findings_to_markdown(findings)
 
-    assert "## Other Refactorings" in output
-    assert "### Modify Method" in output
-    assert "`pkg/alpha.py`:`compute` [Functional Change Detected]" in output
+    assert "- `pkg/alpha.py`" in output
+    assert "`pkg/alpha.py`:`compute` [Changed]" in output
     assert "+    result = a + 1" in output
 
 
@@ -251,7 +247,9 @@ def test_markdown_lists_added_and_removed_symbols() -> None:
 
     output = findings_to_markdown(findings)
 
-    assert "## Added Symbols" in output
-    assert "## Removed Symbols" in output
-    assert "`pkg/beta.py`:`VERBOSE` [constant] (pkg/beta.py)" in output
-    assert "`pkg/alpha.py`:`DEBUG` [constant] (pkg/alpha.py)" in output
+    assert "- `pkg/alpha.py`" in output
+    assert "- `pkg/beta.py`" in output
+    assert "- `pkg/alpha.py`" in output
+    assert "- `pkg/beta.py`" in output
+    assert "`pkg/beta.py`:`VERBOSE` [Added]" in output
+    assert "`pkg/alpha.py`:`DEBUG` [Removed]" in output

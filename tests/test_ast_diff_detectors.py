@@ -301,3 +301,32 @@ def test_unmatched_symbol_reports_add_and_remove(tmp_path: Path) -> None:
 
     assert "Remove Symbol" in finding_types
     assert "Add Symbol" in finding_types
+
+
+def test_move_symbol_to_class_scope_without_value_change(tmp_path: Path) -> None:
+    """Regression test: symbol moved to class with same value should be [Moved]."""
+    from pyref2.service import analyze_trees
+
+    before_dir = tmp_path / "before"
+    before_dir.mkdir()
+    (before_dir / "settings.py").write_text("THRESHOLD = 10\n", encoding="utf-8")
+
+    after_dir = tmp_path / "after"
+    after_dir.mkdir()
+    (after_dir / "settings.py").write_text(
+        """class Settings:
+    THRESHOLD = 10
+""",
+        encoding="utf-8",
+    )
+
+    findings = analyze_trees(str(before_dir), str(after_dir))
+    move_findings = [f for f in findings if f.refactoring_type == "Move Symbol"]
+
+    assert move_findings, "Expected Move Symbol finding"
+    assert len(move_findings) == 1
+    finding = move_findings[0]
+    # Should be "No Functional Change" since the value didn't change
+    assert (
+        finding.details.get("Functional Change Status") == "No Functional Change"
+    ), f"Expected 'No Functional Change', got '{finding.details.get('Functional Change Status')}'"

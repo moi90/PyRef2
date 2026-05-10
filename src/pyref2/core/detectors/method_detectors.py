@@ -631,22 +631,17 @@ def _format_scope_description(
 def _assess_symbol_functional_change(
     pair: MatchedSymbol,
 ) -> dict[str, object]:
-    """Assess whether a symbol change is functional."""
+    """Assess whether a symbol change is functional.
+    
+    Only the actual value/signature change counts as functional change.
+    Scope level changes (e.g., moving from module to class) are structural,
+    not functional, and are already captured in the "Move Symbol" finding.
+    """
     reasons: list[str] = []
 
     # Value signature changed (content change)
     if pair.before.value_signature != pair.after.value_signature:
         reasons.append("symbol value changed")
-
-    # Scope level changed (class/function nesting, not module path)
-    if pair.before.scope_level != pair.after.scope_level:
-        old_scope = _format_scope_description(
-            pair.before.module_name, pair.before.class_name, pair.before.function_name
-        )
-        new_scope = _format_scope_description(
-            pair.after.module_name, pair.after.class_name, pair.after.function_name
-        )
-        reasons.append(f"symbol scope changed from {old_scope} to {new_scope}")
 
     status = FUNCTIONAL_STATUS_CHANGED if reasons else FUNCTIONAL_STATUS_NO_CHANGE
     symbol_diff = _build_symbol_diff(pair, status) if reasons else None
@@ -663,13 +658,20 @@ def _build_symbol_diff(pair: MatchedSymbol, status: str) -> str | None:
     if status != FUNCTIONAL_STATUS_CHANGED:
         return None
 
+    before_source = textwrap.dedent(pair.before.source).strip("\n")
+    after_source = textwrap.dedent(pair.after.source).strip("\n")
+
     before_loc = f"{pair.before.module_name}:{pair.before.lineno}"
     after_loc = f"{pair.after.module_name}:{pair.after.lineno}"
     lines = [
         f"@@ {before_loc} -> {after_loc} @@",
-        f"- {pair.before.source}",
-        f"+ {pair.after.source}",
     ]
+
+    for source_line in before_source.splitlines() or [""]:
+        lines.append(f"- {source_line}")
+    for source_line in after_source.splitlines() or [""]:
+        lines.append(f"+ {source_line}")
+
     return "\n".join(lines)
 
 

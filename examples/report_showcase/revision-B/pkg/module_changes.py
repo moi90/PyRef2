@@ -1,7 +1,3 @@
-def compute_total(values):
-    return sum(values)
-
-
 class Worker:
     def bridge(self, data):
         normalized = data.strip()
