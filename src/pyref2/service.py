@@ -5,8 +5,11 @@ This is the bridge between CLI/repository adapters and the pure detection core.
 
 from __future__ import annotations
 
+import ast
+import difflib
 import json
 import posixpath
+import textwrap
 from collections import defaultdict
 from pathlib import Path
 from typing import Literal
@@ -112,11 +115,16 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
             old_path, old_symbol = _split_reference(finding.original)
             new_path, new_symbol = _split_reference(finding.updated)
             status = _functional_status(finding)
-            class_label = "Moved and changed" if status == "Functional Change Detected" else "Moved"
+
+            reasons = finding.details.get("Functional Change Reasons", [])
+            class_diff = _render_class_diff(finding.details, status, reasons)
+            # Treat as class-level changed only if there is a renderable residual class diff.
+            class_label = "Moved and changed" if class_diff is not None else "Moved"
             _append_file_entry(
                 old_path,
                 f"{_format_compact_change_line(old_path, old_symbol, new_path, new_symbol)} "
                 f"[{class_label}]",
+                class_diff,
             )
             continue
 
@@ -245,6 +253,213 @@ def _render_method_diff(details: dict[str, object], status: str) -> str | None:
     return None
 
 
+def _render_class_diff(
+    details: dict[str, object], status: str, reasons: list[str] | None = None
+) -> str | None:
+    """Render a diff for a moved class when there are class-level changes.
+    
+    Skip rendering if the only reason is contained methods changed,
+    since those are already reported separately as individual method changes.
+    """
+    if status != "Functional Change Detected":
+        return None
+    
+    if reasons is None:
+        reasons = details.get("Functional Change Reasons", [])
+    
+    # If the only reason is "contained methods changed behavior", don't show a diff
+    if reasons == ["contained methods changed behavior"]:
+        return None
+    
+    # For class-level changes (bases, structure), show a diff
+    # Try to get class source diff or fall back to first method's diff
+    class_source_before = details.get("Class Source Before")
+    class_source_after = details.get("Class Source After")
+    
+    if isinstance(class_source_before, str) and isinstance(class_source_after, str):
+        return _build_class_diff(class_source_before, class_source_after, details)
+    
+    # Fallback to showing first changed method if no class source available
+    method_changes = details.get("Method Changes")
+    if not isinstance(method_changes, list):
+        return None
+    
+    # Find the first method that has a functional change and a diff
+    for method_change in method_changes:
+        if not isinstance(method_change, dict):
+            continue
+        if method_change.get("Functional Change Status") != "Functional Change Detected":
+            continue
+        method_diff = method_change.get("Method Diff")
+        if isinstance(method_diff, str) and method_diff.strip():
+            return method_diff
+    
+    return None
+
+
+def _build_class_diff(
+    before_source: str, after_source: str, details: dict[str, object]
+) -> str | None:
+    """Build a diff showing class-level residual changes.
+
+    Lower-level nodes (methods and class assignment symbols) are masked with
+    ellipses because they are reported by dedicated findings.
+    """
+    before_collapsed = _collapse_class_lower_level_nodes(before_source, other_source=after_source)
+    after_collapsed = _collapse_class_lower_level_nodes(after_source, other_source=before_source)
+
+    before_collapsed = textwrap.dedent(before_collapsed).strip("\n")
+    after_collapsed = textwrap.dedent(after_collapsed).strip("\n")
+
+    # No residual class-level difference remains after masking lower-level nodes.
+    if before_collapsed == after_collapsed:
+        return None
+
+    before_loc = details.get("Old Module", "")
+    after_loc = details.get("New Module", "")
+
+    before_lines = before_collapsed.splitlines(keepends=True)
+    after_lines = after_collapsed.splitlines(keepends=True)
+
+    raw_diff = list(
+        difflib.unified_diff(
+            before_lines,
+            after_lines,
+            fromfile=before_loc,
+            tofile=after_loc,
+            n=3,
+        )
+    )
+    if not raw_diff:
+        return None
+
+    # Replace the ---/+++ file header lines with a single @@ ... @@ header.
+    diff_body = [line.rstrip("\n") for line in raw_diff if not line.startswith(("--- ", "+++ "))]
+    header = f"@@ {before_loc} -> {after_loc} @@"
+    return "\n".join([header] + diff_body)
+
+
+def _collapse_class_lower_level_nodes(source: str, *, other_source: str | None = None) -> str:
+    """Collapse lower-level blocks to ellipses using AST line ranges.
+
+    Methods are always masked because they are reported by dedicated findings.
+    Class assignment symbols are masked only when their AST structure changed.
+    If assignment AST is unchanged, we keep the source visible so comment-only
+    edits inside class attributes can still appear in class residual diffs.
+    """
+    lines = source.splitlines()
+    if not lines:
+        return source
+
+    class_node = _first_class_node(source)
+    if class_node is None:
+        return source.rstrip("\n")
+
+    other_assignments = _class_assignment_map(other_source) if other_source else {}
+
+    masked_ranges: list[tuple[int, int]] = []
+    for stmt in class_node.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            start = getattr(stmt, "lineno", 1)
+            if stmt.decorator_list:
+                start = min(getattr(dec, "lineno", start) for dec in stmt.decorator_list)
+            end = getattr(stmt, "end_lineno", getattr(stmt, "lineno", start))
+            masked_ranges.append((start, end))
+        elif isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            key = _assignment_key(stmt)
+            if key is not None:
+                other_stmt = other_assignments.get(key)
+                if other_stmt is not None and _same_ast_structure(stmt, other_stmt):
+                    continue
+            start = getattr(stmt, "lineno", 1)
+            end = getattr(stmt, "end_lineno", start)
+            masked_ranges.append((start, end))
+
+    masked_lines = _expand_ranges(masked_ranges)
+    if not masked_lines:
+        return source.rstrip("\n")
+
+    collapsed: list[str] = []
+    idx = 1
+    total = len(lines)
+    while idx <= total:
+        line = lines[idx - 1]
+        if idx not in masked_lines:
+            collapsed.append(line)
+            idx += 1
+            continue
+
+        # Replace one contiguous masked block with a single ellipsis line.
+        indent = line[: len(line) - len(line.lstrip())]
+        collapsed.append(f"{indent}...")
+        idx += 1
+        while idx <= total and idx in masked_lines:
+            idx += 1
+
+    return "\n".join(collapsed).rstrip("\n")
+
+
+def _first_class_node(source: str) -> ast.ClassDef | None:
+    """Return the first class node for a class source snippet."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            return node
+    return None
+
+
+def _class_assignment_map(source: str) -> dict[str, ast.Assign | ast.AnnAssign]:
+    """Return class assignment statements keyed by simple symbol name."""
+    if not source:
+        return {}
+
+    class_node = _first_class_node(source)
+    if class_node is None:
+        return {}
+
+    assignments: dict[str, ast.Assign | ast.AnnAssign] = {}
+    for stmt in class_node.body:
+        if not isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            continue
+        key = _assignment_key(stmt)
+        if key is not None:
+            assignments[key] = stmt
+    return assignments
+
+
+def _assignment_key(stmt: ast.Assign | ast.AnnAssign) -> str | None:
+    """Return a stable key for simple class assignment targets."""
+    if isinstance(stmt, ast.Assign):
+        if len(stmt.targets) != 1:
+            return None
+        target = stmt.targets[0]
+    else:
+        target = stmt.target
+
+    if isinstance(target, ast.Name):
+        return target.id
+    return None
+
+
+def _same_ast_structure(left: ast.AST, right: ast.AST) -> bool:
+    """Compare AST nodes while ignoring positional metadata."""
+    return ast.dump(left, include_attributes=False) == ast.dump(
+        right, include_attributes=False
+    )
+
+
+def _expand_ranges(ranges: list[tuple[int, int]]) -> set[int]:
+    """Expand inclusive ranges into a line-number set."""
+    expanded: set[int] = set()
+    for start, end in ranges:
+        for lineno in range(start, end + 1):
+            expanded.add(lineno)
+    return expanded
+
+
 def _append_markdown_entry(
     lines: list[str],
     entry: str,
@@ -364,40 +579,6 @@ def write_findings(
     output = serialize_findings(findings, output_format)
     Path(path).write_text(output, encoding="utf-8")
 
-
-def _escape_markdown_cell(value: str) -> str:
-    """Escape markdown table cell text to avoid malformed reports."""
-    return value.replace("|", "\\|").replace("\n", " ").strip()
-
-
-def _format_compact_change(original: str, updated: str) -> str:
-    """Render one finding as a compact, code-fenced markdown diff."""
-    old_path, old_symbol = _split_reference(original)
-    new_path, new_symbol = _split_reference(updated)
-
-    common_prefix = _common_path_prefix(old_path, new_path)
-
-    if common_prefix == ".":
-        return f"`{old_path}:{old_symbol}` → `{new_path}:{new_symbol}`"
-
-    old_suffix = _path_suffix(old_path, common_prefix)
-    new_suffix = _path_suffix(new_path, common_prefix)
-
-    if old_symbol == new_symbol:
-        return (
-            f"`{common_prefix}/`"
-            + "{"
-            + f"`{old_suffix}` → `{new_suffix}`"
-            + "}"
-            + f"`:{old_symbol}`"
-        )
-
-    return (
-        f"`{common_prefix}/`"
-        + "{"
-        + f"`{old_suffix}:{old_symbol}` → `{new_suffix}:{new_symbol}`"
-        + "}"
-    )
 
 
 def _split_reference(reference: str) -> tuple[str, str]:

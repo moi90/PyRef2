@@ -34,6 +34,7 @@ class ClassEntity:
     lineno: int
     end_lineno: int
     method_names: tuple[str, ...]
+    source: str = ""  # Full class source code for detailed comparison
 
     @property
     def qualified_name(self) -> str:

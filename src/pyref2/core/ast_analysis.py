@@ -42,7 +42,7 @@ def parse_module(source: str, module_name: str) -> ModuleEntity:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             methods.append(_method_from_function(node, source, module_name, class_name=None))
         elif isinstance(node, ast.ClassDef):
-            classes.append(_class_from_node(node, module_name))
+            classes.append(_class_from_node(node, source, module_name))
             for class_item in node.body:
                 if isinstance(class_item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     methods.append(
@@ -70,13 +70,20 @@ def parse_module(source: str, module_name: str) -> ModuleEntity:
     )
 
 
-def _class_from_node(node: ast.ClassDef, module_name: str) -> ClassEntity:
+def _class_from_node(node: ast.ClassDef, source: str, module_name: str) -> ClassEntity:
     method_names = tuple(
         item.name
         for item in node.body
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
     )
     bases = tuple(_expr_to_name(base) for base in node.bases)
+    
+    # Extract class source code for detailed comparison
+    source_lines = source.splitlines(keepends=True)
+    start_line = getattr(node, "lineno", 1) - 1  # Convert to 0-based
+    end_line = getattr(node, "end_lineno", getattr(node, "lineno", 1))  # Inclusive
+    class_source = "".join(source_lines[start_line:end_line])
+    
     return ClassEntity(
         name=node.name,
         module_name=module_name,
@@ -84,6 +91,7 @@ def _class_from_node(node: ast.ClassDef, module_name: str) -> ClassEntity:
         lineno=getattr(node, "lineno", 1),
         end_lineno=getattr(node, "end_lineno", getattr(node, "lineno", 1)),
         method_names=method_names,
+        source=class_source,
     )
 
 

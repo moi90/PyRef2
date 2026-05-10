@@ -321,6 +321,16 @@ def _class_move_findings(
         class_reasons.append("class bases changed")
     if pair.before.method_names != pair.after.method_names:
         class_reasons.append("class method set changed")
+    
+    # Check for class-level structural changes (docstring, attributes, etc.)
+    if pair.before.source.strip() != pair.after.source.strip():
+        # Source differs; if it's not just method content changes, it's a structural change
+        # Check if the difference is only in method implementations by comparing signatures
+        if (pair.before.bases == pair.after.bases and 
+            pair.before.method_names == pair.after.method_names):
+            # Bases and methods the same, but source differs → class-level change (docstring, etc.)
+            class_reasons.append("class structure changed")
+    
     if any(
         method_change["Functional Change Status"] == FUNCTIONAL_STATUS_CHANGED
         for method_change in method_changes
@@ -346,6 +356,8 @@ def _class_move_findings(
                 "Functional Change Status": functional_status,
                 "Functional Change Reasons": class_reasons,
                 "Method Changes": method_changes,
+                "Class Source Before": pair.before.source,
+                "Class Source After": pair.after.source,
             },
         )
     ]

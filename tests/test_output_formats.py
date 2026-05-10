@@ -66,6 +66,7 @@ def test_markdown_output_compacts_references_with_nested_common_prefix() -> None
             confidence=1.0,
             details={
                 "Functional Change Status": "Functional Change Detected",
+                "Functional Change Reasons": ["class bases changed"],
                 "Method Changes": [
                     {
                         "Kind": "Rename Method",
@@ -82,7 +83,7 @@ def test_markdown_output_compacts_references_with_nested_common_prefix() -> None
 
     assert (
         "`foo/bar/pkg/`{`alpha.py` → `beta.py`}:`Customer` "
-        "[Moved and changed]"
+        "[Moved]"
     ) in output
 
 
@@ -253,3 +254,230 @@ def test_markdown_lists_added_and_removed_symbols() -> None:
     assert "- `pkg/beta.py`" in output
     assert "`pkg/beta.py`:`VERBOSE` [Added]" in output
     assert "`pkg/alpha.py`:`DEBUG` [Removed]" in output
+
+
+def test_move_class_with_method_changes_includes_diff() -> None:
+    """Regression test: moved class with only method changes should be [Moved] without diff.
+    
+    When a class is moved and only contained methods changed (no class-level changes),
+    it should be reported as [Moved] because the method changes are reported separately.
+    """
+    findings = [
+        RefactoringFinding(
+            refactoring_type="Move Class",
+            original="pkg.module_a.Config",
+            updated="pkg.module_b.Config",
+            location="pkg/module_b.py",
+            confidence=0.95,
+            details={
+                "Old Module": "pkg/module_a.py",
+                "New Module": "pkg/module_b.py",
+                "Original Line": 1,
+                "Updated Line": 1,
+                "Functional Change Status": "Functional Change Detected",
+                "Functional Change Reasons": ["contained methods changed behavior"],
+                "Method Changes": [
+                    {
+                        "Kind": "method",
+                        "Original": "__init__",
+                        "Updated": "__init__",
+                        "Functional Change Status": "Functional Change Detected",
+                        "Functional Change Reasons": ["signature changed"],
+                        "Method Diff": (
+                            "@@ -1,2 +1,3 @@\n"
+                            "-def __init__(self, x):\n"
+                            "+def __init__(self, x, y):\n"
+                            "    pass"
+                        ),
+                    }
+                ],
+            },
+        )
+    ]
+
+    output = findings_to_markdown(findings)
+
+    # Should include the moved class as [Moved] (not [Moved and changed])
+    # because only contained methods changed, which are reported separately
+    assert (
+        "`pkg/`{`module_a.py` → `module_b.py`}:`Config` [Moved]"
+        in output
+    )
+    # Should NOT include a diff at the class level
+    assert "```diff" not in output
+
+
+def test_move_class_with_class_level_changes_includes_diff() -> None:
+    """Test: moved class with class-level changes should show [Moved and changed]."""
+    findings = [
+        RefactoringFinding(
+            refactoring_type="Move Class",
+            original="pkg.module_a.Config",
+            updated="pkg.module_b.Config",
+            location="pkg/module_b.py",
+            confidence=0.95,
+            details={
+                "Old Module": "pkg/module_a.py",
+                "New Module": "pkg/module_b.py",
+                "Original Line": 1,
+                "Updated Line": 1,
+                "Functional Change Status": "Functional Change Detected",
+                "Functional Change Reasons": ["class bases changed"],
+                "Method Changes": [
+                    {
+                        "Kind": "method",
+                        "Original": "__init__",
+                        "Updated": "__init__",
+                        "Functional Change Status": "Functional Change Detected",
+                        "Functional Change Reasons": ["signature changed"],
+                        "Method Diff": (
+                            "@@ -1,2 +1,3 @@\n"
+                            "-def __init__(self, x):\n"
+                            "+def __init__(self, x, y):\n"
+                            "    pass"
+                        ),
+                    }
+                ],
+            },
+        )
+    ]
+
+    output = findings_to_markdown(findings)
+
+    # Should include the moved class as [Moved and changed] because bases changed
+    assert (
+        "`pkg/`{`module_a.py` → `module_b.py`}:`Config` [Moved and changed]"
+        in output
+    )
+    # Without class source snapshots in details, renderer falls back to method diff.
+    assert "```diff" in output
+    assert "-def __init__(self, x):" in output
+    assert "+def __init__(self, x, y):" in output
+
+
+def test_move_class_residual_diff_hides_class_symbol_lines() -> None:
+    """Class residual diff should hide assignment lines reported as class symbols."""
+    findings = [
+        RefactoringFinding(
+            refactoring_type="Move Class",
+            original="pkg.module_a.Config",
+            updated="pkg.module_b.Config",
+            location="pkg/module_b.py",
+            confidence=0.95,
+            details={
+                "Old Module": "pkg/module_a.py",
+                "New Module": "pkg/module_b.py",
+                "Functional Change Status": "Functional Change Detected",
+                "Functional Change Reasons": ["class structure changed"],
+                "Class Source Before": (
+                    "class Config:\n"
+                    "    \"\"\"Old docstring.\"\"\"\n"
+                    "    THRESHOLD = 10\n"
+                    "\n"
+                    "    def run(self):\n"
+                    "        return 1\n"
+                ),
+                "Class Source After": (
+                    "class Config:\n"
+                    "    \"\"\"New docstring.\"\"\"\n"
+                    "    THRESHOLD = 20\n"
+                    "\n"
+                    "    def run(self, debug=False):\n"
+                    "        return 2\n"
+                ),
+            },
+        )
+    ]
+
+    output = findings_to_markdown(findings)
+
+    assert "`pkg/`{`module_a.py` → `module_b.py`}:`Config` [Moved and changed]" in output
+    assert "-    \"\"\"Old docstring.\"\"\"" in output
+    assert "+    \"\"\"New docstring.\"\"\"" in output
+    assert "THRESHOLD" not in output
+    assert "def run" not in output
+    assert "    ..." in output
+
+
+def test_move_class_with_only_lower_level_changes_is_not_class_changed() -> None:
+    """If masked residual is identical, class should be [Moved] without class diff."""
+    findings = [
+        RefactoringFinding(
+            refactoring_type="Move Class",
+            original="pkg.module_a.TomlField",
+            updated="pkg.module_b.TomlField",
+            location="pkg/module_b.py",
+            confidence=0.95,
+            details={
+                "Old Module": "pkg/module_a.py",
+                "New Module": "pkg/module_b.py",
+                "Functional Change Status": "Functional Change Detected",
+                "Functional Change Reasons": ["class structure changed"],
+                "Class Source Before": (
+                    "class TomlField:\n"
+                    "    KEY = 1\n"
+                    "\n"
+                    "    def apply_transform(self, raw_value):\n"
+                    "        \"\"\"Old method docstring.\"\"\"\n"
+                    "        return raw_value\n"
+                ),
+                "Class Source After": (
+                    "class TomlField:\n"
+                    "    KEY = 2\n"
+                    "\n"
+                    "    def apply_transform(self, raw_value):\n"
+                    "        \"\"\"New method docstring.\"\"\"\n"
+                    "        return raw_value\n"
+                ),
+            },
+        )
+    ]
+
+    output = findings_to_markdown(findings)
+
+    assert "`pkg/`{`module_a.py` → `module_b.py`}:`TomlField` [Moved]" in output
+    assert "[Moved and changed]" not in output
+    assert "```diff" not in output
+
+
+def test_move_class_shows_comment_only_changes_in_class_symbol_block() -> None:
+    """Comment-only edits inside class assignment blocks should remain visible."""
+    findings = [
+        RefactoringFinding(
+            refactoring_type="Move Class",
+            original="pkg.module_a.StringParser",
+            updated="pkg.module_b.StringParser",
+            location="pkg/module_b.py",
+            confidence=0.95,
+            details={
+                "Old Module": "pkg/module_a.py",
+                "New Module": "pkg/module_b.py",
+                "Functional Change Status": "Functional Change Detected",
+                "Functional Change Reasons": ["class structure changed"],
+                "Class Source Before": (
+                    "class StringParser:\n"
+                    "    \"\"\"Old docstring.\"\"\"\n"
+                    "\n"
+                    "    _EXTRA_TYPES = {\n"
+                    "        # Integer parser comment\n"
+                    "        \"Integer\": _parse_integer,\n"
+                    "    }\n"
+                ),
+                "Class Source After": (
+                    "class StringParser:\n"
+                    "    \"\"\"New docstring.\"\"\"\n"
+                    "\n"
+                    "    _EXTRA_TYPES = {\n"
+                    "        \"Integer\": _parse_integer,\n"
+                    "    }\n"
+                ),
+            },
+        )
+    ]
+
+    output = findings_to_markdown(findings)
+
+    assert "`pkg/`{`module_a.py` → `module_b.py`}:`StringParser` [Moved and changed]" in output
+    assert "-        # Integer parser comment" in output
+    assert "-    \"\"\"Old docstring.\"\"\"" in output
+    assert "+    \"\"\"New docstring.\"\"\"" in output

@@ -1,3 +1,9 @@
+class Config:
+    """Configuration holder for data processing."""
+    def __init__(self, debug: bool = True):
+        self.debug = debug
+
+
 def calc_total(values):
     return sum(values)
 
