@@ -221,3 +221,37 @@ def test_markdown_no_functional_change_has_no_diff_block() -> None:
     output = findings_to_markdown(findings)
 
     assert "```diff" not in output
+
+
+def test_markdown_lists_added_and_removed_symbols() -> None:
+    findings = [
+        RefactoringFinding(
+            refactoring_type="Remove Symbol",
+            original="pkg.alpha.DEBUG",
+            updated="<none>",
+            location="pkg/alpha.py",
+            confidence=1.0,
+            details={
+                "Scope": "pkg/alpha.py",
+                "Symbol Kind": "constant",
+            },
+        ),
+        RefactoringFinding(
+            refactoring_type="Add Symbol",
+            original="<none>",
+            updated="pkg.beta.VERBOSE",
+            location="pkg/beta.py",
+            confidence=1.0,
+            details={
+                "Scope": "pkg/beta.py",
+                "Symbol Kind": "constant",
+            },
+        ),
+    ]
+
+    output = findings_to_markdown(findings)
+
+    assert "## Added Symbols" in output
+    assert "## Removed Symbols" in output
+    assert "`pkg/beta.py`:`VERBOSE` [constant] (pkg/beta.py)" in output
+    assert "`pkg/alpha.py`:`DEBUG` [constant] (pkg/alpha.py)" in output

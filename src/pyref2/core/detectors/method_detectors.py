@@ -9,7 +9,7 @@ from __future__ import annotations
 import difflib
 
 from pyref2.core.detectors.base import RefactoringDetector
-from pyref2.core.diff_engine import MatchedClass, MatchedMethod, ModuleDiff
+from pyref2.core.diff_engine import MatchedClass, MatchedMethod, MatchedSymbol, ModuleDiff
 from pyref2.models.refactorings import RefactoringFinding
 
 FUNCTIONAL_STATUS_NO_CHANGE = "No Functional Change"
@@ -418,6 +418,258 @@ def _moved_class_transitions(module_diff: ModuleDiff) -> set[tuple[str, str, str
         and pair.before.name == pair.after.name
         and pair.similarity >= 0.65
     }
+
+
+class MoveSymbolDetector(RefactoringDetector):
+    name = "move-symbol"
+
+    def detect(self, module_diff: ModuleDiff) -> list[RefactoringFinding]:
+        """Detect symbol moves across scopes (module/class/function)."""
+        findings: list[RefactoringFinding] = []
+        for pair in module_diff.matched_symbols:
+            # Move: scope key changed (different module, class, or function context)
+            same_location = (
+                pair.before.scope_key == pair.after.scope_key
+                and pair.before.module_name == pair.after.module_name
+            )
+            if same_location:
+                continue
+            if pair.before.name != pair.after.name:
+                continue
+            if pair.similarity < 0.75:
+                continue
+
+            assessment = _assess_symbol_functional_change(pair)
+            old_scope_str = _format_scope_description(
+                pair.before.module_name, pair.before.class_name, pair.before.function_name
+            )
+            new_scope_str = _format_scope_description(
+                pair.after.module_name, pair.after.class_name, pair.after.function_name
+            )
+
+            findings.append(
+                RefactoringFinding(
+                    refactoring_type="Move Symbol",
+                    original=pair.before.qualified_name,
+                    updated=pair.after.qualified_name,
+                    location=pair.after.module_name,
+                    confidence=pair.similarity,
+                    details={
+                        "Old Module": pair.before.module_name,
+                        "New Module": pair.after.module_name,
+                        "Old Scope": old_scope_str,
+                        "New Scope": new_scope_str,
+                        "Symbol Kind": pair.before.kind,
+                        "Functional Change Status": assessment["status"],
+                        "Functional Change Reasons": assessment["reasons"],
+                        "Symbol Diff": assessment["symbol_diff"],
+                        "Original Line": pair.before.lineno,
+                        "Updated Line": pair.after.lineno,
+                    },
+                )
+            )
+        return findings
+
+
+class RenameSymbolDetector(RefactoringDetector):
+    name = "rename-symbol"
+
+    def detect(self, module_diff: ModuleDiff) -> list[RefactoringFinding]:
+        """Detect symbol renames within the same scope."""
+        findings: list[RefactoringFinding] = []
+        for pair in module_diff.matched_symbols:
+            # Rename: same scope, different name
+            if pair.before.name == pair.after.name:
+                continue
+            if pair.before.scope_key != pair.after.scope_key:
+                continue
+            if pair.before.module_name != pair.after.module_name:
+                continue
+            if pair.similarity < 0.75:
+                continue
+
+            assessment = _assess_symbol_functional_change(pair)
+            scope_str = _format_scope_description(
+                pair.before.module_name, pair.before.class_name, pair.before.function_name
+            )
+
+            findings.append(
+                RefactoringFinding(
+                    refactoring_type="Rename Symbol",
+                    original=pair.before.qualified_name,
+                    updated=pair.after.qualified_name,
+                    location=pair.after.module_name,
+                    confidence=pair.similarity,
+                    details={
+                        "Module": pair.before.module_name,
+                        "Scope": scope_str,
+                        "Symbol Kind": pair.before.kind,
+                        "Functional Change Status": assessment["status"],
+                        "Functional Change Reasons": assessment["reasons"],
+                        "Symbol Diff": assessment["symbol_diff"],
+                        "Original Line": pair.before.lineno,
+                        "Updated Line": pair.after.lineno,
+                    },
+                )
+            )
+        return findings
+
+
+class ModifySymbolDetector(RefactoringDetector):
+    name = "modify-symbol"
+
+    def detect(self, module_diff: ModuleDiff) -> list[RefactoringFinding]:
+        """Detect symbol value changes in the same location."""
+        findings: list[RefactoringFinding] = []
+        for pair in module_diff.matched_symbols:
+            # Modify: same name, same scope, different value
+            if pair.before.name != pair.after.name:
+                continue
+            if pair.before.scope_key != pair.after.scope_key:
+                continue
+            if pair.before.module_name != pair.after.module_name:
+                continue
+
+            assessment = _assess_symbol_functional_change(pair)
+            if assessment["status"] != FUNCTIONAL_STATUS_CHANGED:
+                continue
+
+            scope_str = _format_scope_description(
+                pair.before.module_name, pair.before.class_name, pair.before.function_name
+            )
+
+            findings.append(
+                RefactoringFinding(
+                    refactoring_type="Modify Symbol",
+                    original=pair.before.qualified_name,
+                    updated=pair.after.qualified_name,
+                    location=pair.after.module_name,
+                    confidence=pair.similarity,
+                    details={
+                        "Module": pair.before.module_name,
+                        "Scope": scope_str,
+                        "Symbol Kind": pair.before.kind,
+                        "Functional Change Status": assessment["status"],
+                        "Functional Change Reasons": assessment["reasons"],
+                        "Symbol Diff": assessment["symbol_diff"],
+                        "Original Line": pair.before.lineno,
+                        "Updated Line": pair.after.lineno,
+                    },
+                )
+            )
+        return findings
+
+
+class AddRemoveSymbolDetector(RefactoringDetector):
+    name = "add-remove-symbol"
+
+    def detect(self, module_diff: ModuleDiff) -> list[RefactoringFinding]:
+        """Report unmatched symbol additions/removals for conservative matching mode."""
+        findings: list[RefactoringFinding] = []
+
+        for removed_symbol in module_diff.removed_symbols:
+            removed_scope = _format_scope_description(
+                removed_symbol.module_name,
+                removed_symbol.class_name,
+                removed_symbol.function_name,
+            )
+            findings.append(
+                RefactoringFinding(
+                    refactoring_type="Remove Symbol",
+                    original=removed_symbol.qualified_name,
+                    updated="<none>",
+                    location=removed_symbol.module_name,
+                    confidence=1.0,
+                    details={
+                        "Module": removed_symbol.module_name,
+                        "Scope": removed_scope,
+                        "Symbol Kind": removed_symbol.kind,
+                        "Original Line": removed_symbol.lineno,
+                    },
+                )
+            )
+
+        for added_symbol in module_diff.added_symbols:
+            added_scope = _format_scope_description(
+                added_symbol.module_name,
+                added_symbol.class_name,
+                added_symbol.function_name,
+            )
+            findings.append(
+                RefactoringFinding(
+                    refactoring_type="Add Symbol",
+                    original="<none>",
+                    updated=added_symbol.qualified_name,
+                    location=added_symbol.module_name,
+                    confidence=1.0,
+                    details={
+                        "Module": added_symbol.module_name,
+                        "Scope": added_scope,
+                        "Symbol Kind": added_symbol.kind,
+                        "Updated Line": added_symbol.lineno,
+                    },
+                )
+            )
+
+        return findings
+
+
+def _format_scope_description(
+    module_name: str, class_name: str | None, function_name: str | None
+) -> str:
+    """Format a scope description for display."""
+    if class_name is not None and function_name is not None:
+        return f"{module_name}:{class_name}.{function_name}"
+    if class_name is not None:
+        return f"{module_name}:{class_name}"
+    if function_name is not None:
+        return f"{module_name}:{function_name}"
+    return module_name
+
+
+def _assess_symbol_functional_change(
+    pair: MatchedSymbol,
+) -> dict[str, object]:
+    """Assess whether a symbol change is functional."""
+    reasons: list[str] = []
+
+    # Value signature changed (content change)
+    if pair.before.value_signature != pair.after.value_signature:
+        reasons.append("symbol value changed")
+
+    # Scope level changed (class/function nesting, not module path)
+    if pair.before.scope_level != pair.after.scope_level:
+        old_scope = _format_scope_description(
+            pair.before.module_name, pair.before.class_name, pair.before.function_name
+        )
+        new_scope = _format_scope_description(
+            pair.after.module_name, pair.after.class_name, pair.after.function_name
+        )
+        reasons.append(f"symbol scope changed from {old_scope} to {new_scope}")
+
+    status = FUNCTIONAL_STATUS_CHANGED if reasons else FUNCTIONAL_STATUS_NO_CHANGE
+    symbol_diff = _build_symbol_diff(pair, status) if reasons else None
+
+    return {
+        "status": status,
+        "reasons": reasons,
+        "symbol_diff": symbol_diff,
+    }
+
+
+def _build_symbol_diff(pair: MatchedSymbol, status: str) -> str | None:
+    """Build a condensed diff showing before/after symbol source."""
+    if status != FUNCTIONAL_STATUS_CHANGED:
+        return None
+
+    before_loc = f"{pair.before.module_name}:{pair.before.lineno}"
+    after_loc = f"{pair.after.module_name}:{pair.after.lineno}"
+    lines = [
+        f"@@ {before_loc} -> {after_loc} @@",
+        f"- {pair.before.source}",
+        f"+ {pair.after.source}",
+    ]
+    return "\n".join(lines)
 
 
 def _assess_method_functional_change(pair: MatchedMethod) -> dict[str, object]:

@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
-from pyref2.models.code_elements import ClassEntity, MethodEntity, ModuleEntity
+from pyref2.models.code_elements import ClassEntity, MethodEntity, ModuleEntity, SymbolEntity
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +27,13 @@ class MatchedClass:
 
 
 @dataclass(frozen=True, slots=True)
+class MatchedSymbol:
+    before: SymbolEntity
+    after: SymbolEntity
+    similarity: float
+
+
+@dataclass(frozen=True, slots=True)
 class ModuleDiff:
     matched_methods: tuple[MatchedMethod, ...]
     added_methods: tuple[MethodEntity, ...]
@@ -34,12 +41,16 @@ class ModuleDiff:
     matched_classes: tuple[MatchedClass, ...]
     added_classes: tuple[ClassEntity, ...]
     removed_classes: tuple[ClassEntity, ...]
+    matched_symbols: tuple[MatchedSymbol, ...] = ()
+    added_symbols: tuple[SymbolEntity, ...] = ()
+    removed_symbols: tuple[SymbolEntity, ...] = ()
 
 
 def diff_modules(before: ModuleEntity, after: ModuleEntity) -> ModuleDiff:
-    """Return matched/added/removed entities for methods and classes."""
+    """Return matched/added/removed entities for methods, classes, and symbols."""
     matched_methods, added_methods, removed_methods = _match_methods(before.methods, after.methods)
     matched_classes, added_classes, removed_classes = _match_classes(before.classes, after.classes)
+    matched_symbols, added_symbols, removed_symbols = _match_symbols(before.symbols, after.symbols)
 
     return ModuleDiff(
         matched_methods=matched_methods,
@@ -48,6 +59,9 @@ def diff_modules(before: ModuleEntity, after: ModuleEntity) -> ModuleDiff:
         matched_classes=matched_classes,
         added_classes=added_classes,
         removed_classes=removed_classes,
+        matched_symbols=matched_symbols,
+        added_symbols=added_symbols,
+        removed_symbols=removed_symbols,
     )
 
 
@@ -218,3 +232,92 @@ def class_similarity(old: ClassEntity, new: ClassEntity) -> float:
 
     name_bonus = 0.2 if old.name == new.name else 0.0
     return min(1.0, 0.65 * method_ratio + 0.15 * bases_ratio + name_bonus)
+
+
+def _match_symbols(
+    before_symbols: tuple[SymbolEntity, ...],
+    after_symbols: tuple[SymbolEntity, ...],
+) -> tuple[tuple[MatchedSymbol, ...], tuple[SymbolEntity, ...], tuple[SymbolEntity, ...]]:
+    """Match symbols using identity-first then similarity-based approach."""
+    matched: list[MatchedSymbol] = []
+    used_before: set[int] = set()
+    used_after: set[int] = set()
+
+    # First pass: preserve exact identities (same name, module, class, function).
+    for before_index, old_symbol in enumerate(before_symbols):
+        for after_index, new_symbol in enumerate(after_symbols):
+            if after_index in used_after:
+                continue
+            if old_symbol.name != new_symbol.name:
+                continue
+            if old_symbol.scope_key != new_symbol.scope_key:
+                continue
+
+            score = symbol_similarity(old_symbol, new_symbol)
+            if score < 0.3:
+                continue
+
+            used_before.add(before_index)
+            used_after.add(after_index)
+            matched.append(
+                MatchedSymbol(
+                    before=old_symbol,
+                    after=new_symbol,
+                    similarity=score,
+                )
+            )
+            break
+
+    # Second pass: find renames and moves by similarity matching.
+    for before_index, old_symbol in enumerate(before_symbols):
+        if before_index in used_before:
+            continue
+
+        best_index = -1
+        best_score = 0.0
+
+        for idx, new_symbol in enumerate(after_symbols):
+            if idx in used_after:
+                continue
+            score = symbol_similarity(old_symbol, new_symbol)
+            if score > best_score:
+                best_score = score
+                best_index = idx
+
+        if best_index >= 0 and best_score >= 0.6:
+            used_before.add(before_index)
+            used_after.add(best_index)
+            matched.append(
+                MatchedSymbol(
+                    before=old_symbol,
+                    after=after_symbols[best_index],
+                    similarity=best_score,
+                )
+            )
+
+    removed = tuple(
+        symbol for idx, symbol in enumerate(before_symbols) if idx not in used_before
+    )
+    added = tuple(
+        symbol for idx, symbol in enumerate(after_symbols) if idx not in used_after
+    )
+
+    return tuple(matched), added, removed
+
+
+def symbol_similarity(old: SymbolEntity, new: SymbolEntity) -> float:
+    """Compute similarity between two symbols for move/rename detection."""
+    # Value signature similarity (most important for variable matching)
+    value_ratio = SequenceMatcher(None, old.value_signature, new.value_signature).ratio()
+
+    # Name similarity (bonus for same name)
+    name_bonus = 0.2 if old.name == new.name else 0.0
+
+    # Scope similarity (same scope is valued, cross-scope matches are still valid)
+    scope_bonus = 0.1 if old.scope_key == new.scope_key else 0.0
+
+    # Kind (variable vs constant) consistency bonus
+    kind_bonus = 0.05 if old.kind == new.kind else 0.0
+
+    # Value-based matching is the primary signal for symbols
+    return min(1.0, 0.65 * value_ratio + name_bonus + scope_bonus + kind_bonus)

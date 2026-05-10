@@ -81,7 +81,8 @@ def _aggregate_tree(root: str, label: str) -> ModuleEntity:
 
     methods = tuple(method for module in modules for method in module.methods)
     classes = tuple(class_entity for module in modules for class_entity in module.classes)
-    return ModuleEntity(name=label, methods=methods, classes=classes)
+    symbols = tuple(symbol for module in modules for symbol in module.symbols)
+    return ModuleEntity(name=label, methods=methods, classes=classes, symbols=symbols)
 
 
 def findings_to_json(findings: list[RefactoringFinding]) -> str:
@@ -104,6 +105,10 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
     module_level: list[tuple[str, str | None]] = []
     mixed_scope: list[tuple[str, str | None]] = []
     class_groups: dict[tuple[str, str, str, str], dict[str, object]] = {}
+    symbol_moves: list[tuple[str, str | None]] = []
+    symbol_renames: list[tuple[str, str | None]] = []
+    symbol_added: list[str] = []
+    symbol_removed: list[str] = []
     other_findings: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
 
     for finding in findings:
@@ -193,6 +198,51 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
             )
             continue
 
+        if finding.refactoring_type == "Move Symbol":
+            old_path, old_symbol = _split_reference(finding.original)
+            new_path, new_symbol = _split_reference(finding.updated)
+            status = _functional_status(finding)
+            old_scope = finding.details.get("Old Scope", "")
+            new_scope = finding.details.get("New Scope", "")
+            
+            symbol_label = (
+                f"`{old_symbol}` ({old_scope} → {new_scope}) [{status}]"
+                if old_scope or new_scope
+                else f"`{old_symbol}` [{status}]"
+            )
+            compact_ref = _format_compact_change_line(old_path, old_symbol, new_path, new_symbol)
+            entry = f"{compact_ref} {symbol_label}"
+            symbol_moves.append((entry, _render_method_diff(finding.details, status)))
+            continue
+
+        if finding.refactoring_type == "Rename Symbol":
+            old_path, old_symbol = _split_reference(finding.original)
+            new_path, new_symbol = _split_reference(finding.updated)
+            status = _functional_status(finding)
+            scope = finding.details.get("Scope", "")
+            
+            compact_ref = _format_compact_change_line(old_path, old_symbol, new_path, new_symbol)
+            scope_str = f" ({scope})" if scope else ""
+            entry = f"{compact_ref}{scope_str} [{status}]"
+            symbol_renames.append((entry, _render_method_diff(finding.details, status)))
+            continue
+
+        if finding.refactoring_type == "Add Symbol":
+            new_path, new_symbol = _split_reference(finding.updated)
+            scope = finding.details.get("Scope", "")
+            kind = finding.details.get("Symbol Kind", "symbol")
+            scope_str = f" ({scope})" if scope else ""
+            symbol_added.append(f"`{new_path}`:`{new_symbol}` [{kind}]{scope_str}")
+            continue
+
+        if finding.refactoring_type == "Remove Symbol":
+            old_path, old_symbol = _split_reference(finding.original)
+            scope = finding.details.get("Scope", "")
+            kind = finding.details.get("Symbol Kind", "symbol")
+            scope_str = f" ({scope})" if scope else ""
+            symbol_removed.append(f"`{old_path}`:`{old_symbol}` [{kind}]{scope_str}")
+            continue
+
         other_findings[finding.refactoring_type].append(
             (
                 _format_change_line(
@@ -232,6 +282,34 @@ def findings_to_markdown(findings: list[RefactoringFinding]) -> str:
     if mixed_scope:
         for entry, diff_block in sorted(mixed_scope, key=lambda item: item[0]):
             _append_markdown_entry(lines, entry, diff_block, indent="  ")
+    else:
+        lines.append("- None")
+
+    lines.extend(["", "## Symbol Moves", ""])
+    if symbol_moves:
+        for entry, diff_block in sorted(symbol_moves, key=lambda item: item[0]):
+            _append_markdown_entry(lines, entry, diff_block, indent="  ")
+    else:
+        lines.append("- None")
+
+    lines.extend(["", "## Symbol Renames", ""])
+    if symbol_renames:
+        for entry, diff_block in sorted(symbol_renames, key=lambda item: item[0]):
+            _append_markdown_entry(lines, entry, diff_block, indent="  ")
+    else:
+        lines.append("- None")
+
+    lines.extend(["", "## Added Symbols", ""])
+    if symbol_added:
+        for entry in sorted(symbol_added):
+            lines.append(f"- {entry}")
+    else:
+        lines.append("- None")
+
+    lines.extend(["", "## Removed Symbols", ""])
+    if symbol_removed:
+        for entry in sorted(symbol_removed):
+            lines.append(f"- {entry}")
     else:
         lines.append("- None")
 

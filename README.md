@@ -90,6 +90,23 @@ If none of the above is true, class status is `No Functional Change`.
 
 For class signature changes (for example, base-class changes), PyRef2 reports `Functional Change Detected` with reasons when the class signature differs.
 
+### Symbol-level checks
+
+For module-level and class-level non-method symbols (variables and constants), PyRef2 detects moves, renames, and value changes:
+
+- `Move Symbol`: symbol appears in a different scope or module (e.g., module-level to class-level, or from one module to another)
+- `Rename Symbol`: symbol name changed within the same scope
+- `Modify Symbol`: symbol value changed in the same location
+
+Functional-change status for symbols is determined by:
+
+- `value_signature`: normalized AST signature of the assignment's right-hand side
+- `scope_level`: nesting context (module-level vs. class-level vs. function-scoped)
+
+If value signature OR scope level changed, status is `Functional Change Detected`. Otherwise, `No Functional Change`.
+
+Note: moving a symbol to a different module does NOT by itself mark it as a functional change unless the value also changed or the nesting context changed (e.g., module-level to class-level).
+
 ### Reporting behavior
 
 - Move-related and non-move behavior findings include a functional-change status in JSON and Markdown.
@@ -97,9 +114,27 @@ For class signature changes (for example, base-class changes), PyRef2 reports `F
 - Class entries can include child method changes used to justify class-level status.
 - When status is `Functional Change Detected`, Markdown includes a condensed unified code diff scoped to the relevant method.
 
+### Handled symbol-move cases
+
+PyRef2 detects and reports the following symbol-move transitions:
+
+| Case | Example | Detected As |
+|------|---------|-------------|
+| Module-level rename (same file) | `DEBUG` → `VERBOSE` in `config.py` | Rename Symbol |
+| Module-level move (different file) | `DEBUG` in `config_a.py` → `config_b.py` | Move Symbol |
+| Module to class move | `TIMEOUT` (module) → `TIMEOUT` (class body) | Move Symbol |
+| Module to function move | `COUNTER` (module) → `COUNTER` (function body) | Move Symbol |
+| Class to module move | `TIMEOUT` (class body) → `TIMEOUT` (module) | Move Symbol |
+| Class to function move | `SETTING` (class body) → `SETTING` (method body) | Move Symbol |
+| Function to module move | `TEMP` (function body) → `TEMP` (module) | Move Symbol |
+| Function to class move | `TEMP` (function body) → `TEMP` (class body) | Move Symbol |
+| Same-location value change | `TIMEOUT = 30` → `TIMEOUT = 60` (same file/scope) | Modify Symbol |
+
 ### Current limitations
 
 This is a static heuristic, not dynamic execution equivalence. It does not guarantee runtime equivalence in all cases. In particular, behavior can still change through effects not captured by the current signals (for example, external state interactions or semantics-preserving AST rewrites that alter call-name sets).
+
+**Symbols scope**: Currently, PyRef2 only tracks module-level and class-level non-method symbols (variables and constants). Function/method-local symbols and imports are not tracked. Tuple unpacking assignments (e.g., `x, y = ...`) are also not currently supported; only simple-name targets are extracted.
 
 ## Quickstart
 
