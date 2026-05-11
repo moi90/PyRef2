@@ -76,6 +76,15 @@ class ChangeMethodSignatureDetector(RefactoringDetector):
             if pair.before.params == pair.after.params:
                 continue
 
+            # Signature changes for moved or renamed methods are folded into
+            # the method's move/rename finding to avoid duplicate reports.
+            if pair.before.module_name != pair.after.module_name:
+                continue
+            if pair.before.class_name != pair.after.class_name:
+                continue
+            if pair.before.name != pair.after.name:
+                continue
+
             param_type = _param_change_type(pair)
             assessment = _assess_method_functional_change(pair)
             findings.append(
@@ -322,21 +331,6 @@ def _class_move_findings(
     if pair.before.method_names != pair.after.method_names:
         class_reasons.append("class method set changed")
     
-    # Check for class-level structural changes (docstring, attributes, etc.)
-    if pair.before.source.strip() != pair.after.source.strip():
-        # Source differs; if it's not just method content changes, it's a structural change
-        # Check if the difference is only in method implementations by comparing signatures
-        if (pair.before.bases == pair.after.bases and 
-            pair.before.method_names == pair.after.method_names):
-            # Bases and methods the same, but source differs → class-level change (docstring, etc.)
-            class_reasons.append("class structure changed")
-    
-    if any(
-        method_change["Functional Change Status"] == FUNCTIONAL_STATUS_CHANGED
-        for method_change in method_changes
-    ):
-        class_reasons.append("contained methods changed behavior")
-
     functional_status = (
         FUNCTIONAL_STATUS_CHANGED if class_reasons else FUNCTIONAL_STATUS_NO_CHANGE
     )

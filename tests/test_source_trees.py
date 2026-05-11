@@ -73,3 +73,37 @@ def test_class_move_suppresses_child_rename_but_keeps_functional_check() -> None
         and change.get("Functional Change Status") == "No Functional Change"
         for change in method_changes
     )
+
+
+def test_class_move_ignores_child_method_behavior_for_class_status(tmp_path: Path) -> None:
+    """Child method changes must not mark the class itself as changed."""
+    before_dir = tmp_path / "before"
+    before_dir.mkdir()
+    (before_dir / "alpha.py").write_text(
+        """
+class Customer:
+    def label(self, raw):
+        return raw.strip().lower()
+""",
+        encoding="utf-8",
+    )
+
+    after_dir = tmp_path / "after"
+    after_dir.mkdir()
+    (after_dir / "beta.py").write_text(
+        """
+class Customer:
+    def label(self, raw):
+        return raw.strip().upper()
+""",
+        encoding="utf-8",
+    )
+
+    findings = analyze_trees(str(before_dir), str(after_dir))
+    move_class_findings = [f for f in findings if f.refactoring_type == "Move Class"]
+
+    assert move_class_findings
+    assert all(
+        finding.details.get("Functional Change Status") == "No Functional Change"
+        for finding in move_class_findings
+    )

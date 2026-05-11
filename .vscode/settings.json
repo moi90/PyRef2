@@ -1,0 +1,21 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^uv run ruff check \\. && uv run pytest -q$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^uv run pytest -q$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^uv run ruff check \\.$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^uv run pytest .+$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "uv": true
+    }
+}

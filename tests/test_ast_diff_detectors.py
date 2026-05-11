@@ -330,3 +330,50 @@ def test_move_symbol_to_class_scope_without_value_change(tmp_path: Path) -> None
     assert (
         finding.details.get("Functional Change Status") == "No Functional Change"
     ), f"Expected 'No Functional Change', got '{finding.details.get('Functional Change Status')}'"
+
+
+def test_moved_and_changed_method_is_reported_once(tmp_path: Path) -> None:
+    """A moved+changed method should be one finding, not duplicate method findings."""
+    from pyref2.service import analyze_trees
+
+    before_dir = tmp_path / "before"
+    before_dir.mkdir()
+    (before_dir / "alpha.py").write_text(
+        """
+def bridge(data):
+    normalized = data.strip()
+    return normalized.lower()
+""",
+        encoding="utf-8",
+    )
+
+    after_dir = tmp_path / "after"
+    after_dir.mkdir()
+    (after_dir / "beta.py").write_text(
+        """
+class Worker:
+    def bridge(self, data):
+        normalized = data.strip()
+        return normalized.upper()
+""",
+        encoding="utf-8",
+    )
+
+    findings = analyze_trees(str(before_dir), str(after_dir))
+    method_findings = [
+        f
+        for f in findings
+        if f.refactoring_type in {
+            "Move Method",
+            "Rename Method",
+            "Modify Method",
+            "Add Parameter",
+            "Remove Parameter",
+            "Change Method Signature",
+            "Rename Parameter",
+        }
+        and "bridge" in (f.original + f.updated)
+    ]
+
+    assert len(method_findings) == 1
+    assert method_findings[0].refactoring_type == "Move Method"
