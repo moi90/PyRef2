@@ -17,5 +17,6 @@
             "matchCommandLine": true
         },
         "uv": true
-    }
+    },
+    "python.analysis.typeCheckingMode": "standard"
 }

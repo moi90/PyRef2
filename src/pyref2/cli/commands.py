@@ -86,8 +86,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the Git repository to analyze",
     )
     analyze_revisions_parser.add_argument(
-        "revision_range",
-        help="Git revision range like origin/main..HEAD",
+        "revision_spec",
+        nargs="?",
+        help="Optional Git revision spec: A..B range or single commit (defaults to working tree if left empty)",
     )
     analyze_revisions_parser.add_argument(
         "--output",
@@ -122,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "analyze-revisions":
-        findings = analyze_revision_range(args.repo, args.revision_range)
+        findings = analyze_revision_range(args.repo, args.revision_spec)
 
         if args.output:
             write_findings(args.output, findings, output_format=args.format)

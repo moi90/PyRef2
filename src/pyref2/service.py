@@ -19,7 +19,12 @@ from pyref2.core.detectors import default_detectors
 from pyref2.core.diff_engine import diff_modules
 from pyref2.models.code_elements import ModuleEntity
 from pyref2.models.refactorings import RefactoringFinding
-from pyref2.repository import aggregate_revision, parse_revision_range
+from pyref2.repository import (
+    aggregate_revision,
+    aggregate_working_tree,
+    parse_revision_range,
+    resolve_single_revision,
+)
 
 
 def analyze_files(before_path: str, after_path: str) -> list[RefactoringFinding]:
@@ -40,19 +45,40 @@ def analyze_trees(before_root: str, after_root: str) -> list[RefactoringFinding]
 
 def analyze_revisions(
     repo_path: str,
-    before_revision: str,
+    before_revision: str | None,
     after_revision: str,
 ) -> list[RefactoringFinding]:
     """Run the full MVP pipeline on two Git revisions from one repository."""
-    before_module = aggregate_revision(repo_path, before_revision, label=before_revision)
+    if before_revision is None:
+        before_module = ModuleEntity(name="<empty>", methods=(), classes=(), symbols=())
+    else:
+        before_module = aggregate_revision(repo_path, before_revision, label=before_revision)
     after_module = aggregate_revision(repo_path, after_revision, label=after_revision)
 
     return _run_detectors(before_module, after_module)
 
 
-def analyze_revision_range(repo_path: str, revision_range: str) -> list[RefactoringFinding]:
-    """Run revision analysis for a Git range like `origin/main..HEAD`."""
-    before_revision, after_revision = parse_revision_range(revision_range)
+def analyze_working_tree(repo_path: str) -> list[RefactoringFinding]:
+    """Run revision analysis for current working tree changes against `HEAD`."""
+    before_module = aggregate_revision(repo_path, "HEAD", label="HEAD")
+    after_module = aggregate_working_tree(repo_path, label="working-tree")
+
+    return _run_detectors(before_module, after_module)
+
+
+def analyze_revision_range(
+    repo_path: str,
+    revision_range: str | None,
+) -> list[RefactoringFinding]:
+    """Run revision analysis for a range, single commit, or current working tree."""
+    if revision_range is None:
+        return analyze_working_tree(repo_path)
+
+    if ".." in revision_range:
+        before_revision, after_revision = parse_revision_range(revision_range)
+        return analyze_revisions(repo_path, before_revision, after_revision)
+
+    before_revision, after_revision = resolve_single_revision(repo_path, revision_range)
     return analyze_revisions(repo_path, before_revision, after_revision)
 
 
